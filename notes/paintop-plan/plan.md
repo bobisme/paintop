@@ -1659,20 +1659,24 @@ An operation is not done when it renders a plausible image. It is done when:
 
 Implement M0 and the first half of M1 without GPU, Lua, models, or GLB mutation.
 
-The first end-to-end conformance scenario should be deliberately boring and strict:
+The first end-to-end conformance scenario should be deliberately boring and strict
+(non-SDF MVP variant; see [`M0_DECISIONS.md`](M0_DECISIONS.md)):
 
 ```text
 load a photographic fixture
-→ create an ellipse mask
-→ convert mask to signed distance
-→ feather by a physical pixel radius
-→ paint a bounded batch of Gaussian splats
-→ apply a linear-light color adjustment
-→ composite over source
-→ assert no change outside expanded authorized mask
+→ inspect it (extent, ranges, content hash)
+→ create a soft-edged ellipse mask (analytic feather by a physical pixel radius)
+→ paint a bounded batch of Gaussian splats onto an edit layer
+→ apply a linear-light color adjustment to the edit layer
+→ composite the edit over the source through the authorized mask
+→ assert no change outside the authorized mask
 → emit output, mask, diff, contact sheet, normalized plan, and trace
 → rerun and verify identical CPU-reference content hash
 ```
+
+The signed-distance feather/grow path (`mask.to_sdf` → `sdf.offset` → `sdf.to_mask`)
+is deferred out of this first slice and lands immediately after the loop is green
+("M1.5"), per [`M0_DECISIONS.md`](M0_DECISIONS.md) D1.
 
 If an agent can implement, run, diagnose, and revise that workflow autonomously, the project has a viable foundation. Everything else—including the alien mathematics—is leverage on top of that contract.
 

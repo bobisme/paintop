@@ -801,6 +801,11 @@ Suggestions are non-authoritative data, not auto-applied edits.
 
 ## 20. Example: complete v1 touch-up plan
 
+This is the **non-SDF MVP variant** of the first conformance scenario (see
+[`../M0_DECISIONS.md`](../M0_DECISIONS.md) D1/D2): the authorized mask is a
+soft-edged ellipse (analytic feather), and `composite.masked_replace@1` is the
+single authorization boundary that `assert.no_change_outside_mask@1` checks.
+
 ```json
 {
   "paintop": "1.0",
@@ -840,30 +845,14 @@ Suggestions are non-authoritative data, not auto-applied edits.
       "in": {"image": "node:linear/image"}
     },
     {
-      "id": "ellipse",
+      "id": "allowed",
       "op": "mask.ellipse@1",
       "params": {
         "extent_from": "input:source",
         "center_px": [512.0, 406.0],
         "radii_px": [92.0, 36.0],
         "angle_rad": -0.16,
-        "antialias": "analytic"
-      }
-    },
-    {
-      "id": "sdf",
-      "op": "mask.to_sdf@1",
-      "in": {"mask": "node:ellipse/mask"},
-      "params": {
-        "threshold": 0.5,
-        "sign": "negative-inside"
-      }
-    },
-    {
-      "id": "allowed",
-      "op": "sdf.to_mask@1",
-      "in": {"sdf": "node:sdf/sdf"},
-      "params": {
+        "antialias": "analytic",
         "edge": {
           "profile": "smoothstep",
           "half_width_px": 8.0
@@ -874,8 +863,7 @@ Suggestions are non-authoritative data, not auto-applied edits.
       "id": "splats",
       "op": "paint.gaussian_splats@1",
       "in": {
-        "base": "node:base/image",
-        "clip": "node:allowed/mask"
+        "base": "node:base/image"
       },
       "params": {
         "space": "linear-srgb",
@@ -903,8 +891,7 @@ Suggestions are non-authoritative data, not auto-applied edits.
       "id": "graded",
       "op": "color.adjust@1",
       "in": {
-        "image": "node:splats/image",
-        "mask": "node:allowed/mask"
+        "image": "node:splats/image"
       },
       "params": {
         "exposure_ev": -0.04,
@@ -913,9 +900,18 @@ Suggestions are non-authoritative data, not auto-applied edits.
       }
     },
     {
+      "id": "composited",
+      "op": "composite.masked_replace@1",
+      "in": {
+        "edited": "node:graded/image",
+        "base": "node:base/image",
+        "mask": "node:allowed/mask"
+      }
+    },
+    {
       "id": "straight",
       "op": "alpha.unpremultiply@1",
-      "in": {"image": "node:graded/image"}
+      "in": {"image": "node:composited/image"}
     },
     {
       "id": "encoded",
@@ -942,7 +938,7 @@ Suggestions are non-authoritative data, not auto-applied edits.
     {
       "id": "finite",
       "op": "assert.finite@1",
-      "in": {"resource": "node:graded/image"}
+      "in": {"resource": "node:composited/image"}
     }
   ],
   "exports": {

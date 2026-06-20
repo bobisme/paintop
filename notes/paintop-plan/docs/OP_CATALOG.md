@@ -94,6 +94,8 @@ Avoid a monolithic “Photoshop adjustment” operation. Smaller typed nodes per
 
 Compatibility convenience macros may expose `mask.grow`, `mask.shrink`, and `mask.feather`, but normalization should reduce them to SDF or explicitly defined morphology nodes.
 
+> **Priority note (see [`../M0_DECISIONS.md`](../M0_DECISIONS.md) D1):** exact-EDT + the SDF mask calculus (`mask.to_sdf`, `sdf.to_mask`, `sdf.offset`, and the boolean SDF ops) are the **M1.5 priority** — the first slice to land immediately after the MVP touch-up loop is green — not M4. They are deferred out of the first vertical slice only because the MVP feathers analytically on `mask.ellipse@1`; they are foundational and should land second.
+
 ---
 
 ## 5. Geometry and resampling
