@@ -1,0 +1,10 @@
+{
+  "blur-sigma-8-int": "blake3:8630a66853a64695587290fdb71f21bdc5b0b4482cb8a410b125149deee7509c",
+  "blur-sigma-8_0": "blake3:ea4e877b33e15ccc7df21d90d1e38725b8386caab7d68970e1e36a91c3b13a4f",
+  "blur-sigma-8_5": "blake3:12ff562d76969963ed142f57cf75fa375f79b2953227ebd0d86f52a8bf57b4de",
+  "cache-entry-blur": "blake3:304f3ef335fd2a2f48f164eb9a4e3d71c661d84acaa6ee31ce5f5ae9de2ab5d3",
+  "content-rgba8": "blake3:1f43e5022b20a56e2c36f0c72974d6342e77febb08db00c878ef73de22e95a95",
+  "empty-plan": "blake3:2f45ce2ec5ccee9998c09717d45d30660dc03e1fe23dc6962dd92947a42950d3",
+  "manifest-blur-v1": "blake3:6f0779eb437cd70b1290dea4d56f8ce781c837f2d27a07ea57354af9281cb57e",
+  "resource-rgba8": "blake3:70ddca5f71e7c1d16d9288bdc1f1ed5cd68c760a91e14f4a503dbbdfd318f23a"
+}

@@ -1,0 +1,16 @@
+[package]
+name = "paintop-cpu"
+description = "Scalar oracle plus SIMD/Rayon op implementations of contracts owned by core/image/ir."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+paintop-ir.workspace = true
+paintop-image.workspace = true
+paintop-core.workspace = true
+
+[lints]
+workspace = true

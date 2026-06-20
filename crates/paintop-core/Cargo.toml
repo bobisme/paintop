@@ -1,0 +1,26 @@
+[package]
+name = "paintop-core"
+description = "Compiler, scheduler, cache, policies, and tracing. Must not depend on a model runtime."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+paintop-ir.workspace = true
+paintop-image.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Used only by tests to validate that the dependency-free PNG encoder emits
+# bytes a real decoder accepts and round-trips.
+image = { workspace = true }
+# Used by the generated-graph quality suite (AGENT_VERIFICATION §9) to fuzz the
+# resolver/checker/executor over bounded random DAGs and invalid-graph cases.
+proptest = { workspace = true }
+
+[lints]
+workspace = true

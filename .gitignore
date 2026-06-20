@@ -2,3 +2,6 @@
 /.maw/
 /.manifold/
 /repo.git/
+
+# Rust build artifacts
+/target/

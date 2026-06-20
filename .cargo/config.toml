@@ -1,0 +1,5 @@
+# `cargo xtask ...` runs the repository-automation binary (op verification,
+# fixture generation, CI helpers). This is the standard cargo-xtask alias so the
+# exit-gate commands in AGENTS.md / bone specs work verbatim.
+[alias]
+xtask = "run --quiet --package xtask --"

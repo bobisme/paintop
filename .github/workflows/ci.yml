@@ -1,0 +1,135 @@
+name: CI
+
+# Per-PR Layer-0 build-hygiene gates (AGENT_VERIFICATION §2.1).
+# These mirror `just check`: fmt, the clippy lint wall, tests, and docs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Treat rustdoc warnings (e.g. broken intra-doc links) as errors.
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  layer0:
+    name: Layer-0 build hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `rust-toolchain.toml` pins the channel + components (rustfmt, clippy).
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy lint wall
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Docs
+        run: cargo doc --workspace --no-deps
+
+  # Changed-op verification (AGENT_VERIFICATION §8.1, §14): for every op manifest
+  # under `ops/manifests/` that this PR touches, run `cargo xtask verify-op` and
+  # preserve its `target/verification/<op-id>/` report tree as a build artifact.
+  #
+  # The job is a no-op (and still succeeds) when no manifest changed, so PRs that
+  # do not touch an op are not blocked. `verify-op` exits non-zero on an
+  # incomplete op, which fails the job and surfaces the missing category.
+  changed-op:
+    name: Changed-op verification
+    runs-on: ubuntu-latest
+    steps:
+      # Fetch enough history to diff this push/PR against its base ref.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Resolve the base commit to diff against: the PR base on pull_request, or
+      # the push's `before` commit on a branch push.
+      - name: Resolve diff base
+        id: base
+        run: |
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.before }}" ] && \
+               git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
+            echo "sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Collect added/modified manifests under ops/manifests/. An empty base
+      # (first push / shallow history) falls back to "all tracked manifests".
+      - name: Detect changed op manifests
+        id: changed
+        run: |
+          base='${{ steps.base.outputs.sha }}'
+          if [ -n "$base" ]; then
+            files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- 'ops/manifests/*.json' || true)
+          else
+            files=$(git ls-files 'ops/manifests/*.json' || true)
+          fi
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -z "$files" ]; then
+            echo "No op manifests changed; skipping verify-op."
+          else
+            echo "Changed op manifests:"; echo "$files"
+          fi
+
+      # Run verify-op for each changed manifest. The op id is read from the
+      # manifest itself so the report path matches the canonical id regardless of
+      # the file name.
+      - name: Run verify-op for changed manifests
+        if: steps.changed.outputs.files != ''
+        run: bash ci/verify-changed-ops.sh
+        env:
+          CHANGED_MANIFESTS: ${{ steps.changed.outputs.files }}
+
+      # Preserve the report tree (index.json / summary.md / test-results.json and
+      # the per-category subdirs) so reviewers can inspect the evidence bundle.
+      - name: Upload verification artifacts
+        if: always() && steps.changed.outputs.files != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-reports
+          path: target/verification/
+          if-no-files-found: warn

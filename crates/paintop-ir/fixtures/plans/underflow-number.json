@@ -1,0 +1,12 @@
+{
+  "paintop": "1.0",
+  "inputs": {},
+  "nodes": [
+    {
+      "id": "blurred",
+      "op": "filter.gaussian_blur@1",
+      "params": {"sigma": 1e-400}
+    }
+  ],
+  "exports": {}
+}

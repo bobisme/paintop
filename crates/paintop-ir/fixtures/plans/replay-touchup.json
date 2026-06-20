@@ -1,0 +1,76 @@
+{
+  "paintop": "1.0",
+  "name": "localized-warm-shadow-repair",
+  "description": "Non-semantic prose: excluded from the semantic hash.",
+  "policy": {
+    "resources": {"max_nodes": 64, "max_pixels_per_resource": 33554432}
+  },
+  "inputs": {
+    "source": {
+      "kind": "image.file",
+      "path": "input.png",
+      "decode": {"desired_format": "rgba8", "color": "srgb", "alpha": "straight"}
+    }
+  },
+  "nodes": [
+    {
+      "id": "linear",
+      "op": "color.convert@1",
+      "in": {"image": "input:source"},
+      "params": {"to": "linear-srgb"}
+    },
+    {
+      "id": "base",
+      "op": "alpha.premultiply@1",
+      "in": {"image": "node:linear/image"}
+    },
+    {
+      "id": "allowed",
+      "op": "mask.ellipse@1",
+      "params": {
+        "extent_from": "input:source",
+        "center_px": [512.0, 406.0],
+        "radii_px": [92.0, 36.0],
+        "angle_rad": -0.16,
+        "antialias": "analytic",
+        "edge": {"profile": "smoothstep", "half_width_px": 8.0}
+      }
+    },
+    {
+      "id": "graded",
+      "op": "color.adjust@1",
+      "in": {"image": "node:base/image"},
+      "params": {"exposure_ev": -0.04, "saturation": -0.03, "temperature": 0.02}
+    },
+    {
+      "id": "composited",
+      "op": "composite.masked_replace@1",
+      "in": {
+        "edited": "node:graded/image",
+        "base": "node:base/image",
+        "mask": "node:allowed/mask"
+      }
+    },
+    {
+      "id": "encoded",
+      "op": "color.convert@1",
+      "in": {"image": "node:composited/image"},
+      "params": {"to": "srgb"}
+    }
+  ],
+  "assertions": [
+    {
+      "id": "finite",
+      "op": "assert.finite@1",
+      "in": {"resource": "node:composited/image"}
+    }
+  ],
+  "exports": {
+    "final": {
+      "resource": "node:encoded/image",
+      "kind": "image",
+      "path": "out.png",
+      "encoding": {"format": "png"}
+    }
+  }
+}

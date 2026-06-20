@@ -376,3 +376,6 @@
 1781984375654664	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEz8gI		item.move	bn-1f8	{"state":"doing"}	blake3:lEINzdGyawiPfrNQrjddbTFngE36hdkgbq0zwD_bOYA
 1781984375664595	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEz8wI		item.assign	bn-1f8	{"action":"assign","agent":"paintop-dev"}	blake3:pFpcV_4bn6Xg9tyNrNhpH4lGZ1_-XNHMkfjMe3Y2FE8
 1781984471821526	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEz9AI		item.move	bn-1f8	{"state":"done"}	blake3:FQC5EUwxJ13jFUWX4h1gT7GRYclZenAapg5YaLCSJwI
+1781988140823648	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAQ		item.move	bn-1r8	{"state":"doing"}	blake3:8lr_0KUw24aqf9fE6_QXoIlrgH7mdV_IdVvJr0_8OnA
+1781988140827999	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAg		item.assign	bn-1r8	{"action":"assign","agent":"paintop-dev"}	blake3:hJrAj0Gy8HpCwWBTUyk2HsBDwUvc5rWmk77Nx0cqmQ8
+1781988140842331	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAw		item.comment	bn-1r8	{"body":"starting: plan size/depth/node-count/inline-payload parse limits [m0-build ws]"}	blake3:mn-snaGvM7Zt6ZJ36z2vjVO1mpDncBvqb331VLdUZSE
