@@ -5,6 +5,14 @@ Tools: `bones`, `maw`, `seal`, `rite`, `vessel`
 
 <!-- Add project-specific context below: architecture, conventions, key files, etc. -->
 
+## Project Overview
+
+`paintop` is a planned Rust CLI runtime for deterministic, graph-based visual edits. Agents will author typed JSON operation graphs, then `paintop` will validate, normalize, execute, and emit evidence showing what changed, where it changed, and which assertions passed.
+
+The first implementation target is a strict 2D image-editing and verification loop: load an image, inspect it, build a constrained mask, apply localized color/splat/composite operations, assert that pixels outside the authorized mask did not change, and write reproducible outputs plus trace/evidence artifacts. Later milestones expand into tiled execution, caching, optimized CPU/GPU backends, model-produced candidates, and surface-aware material editing for GLB assets through `msh`.
+
+Key planning references live in `notes/paintop-plan/`: start with `plan.md`, `M0_DECISIONS.md`, `docs/IR_SPEC.md`, `docs/AGENT_VERIFICATION.md`, and `docs/OP_CATALOG.md`.
+
 <!-- edict:managed-start -->## Edict Workflow
 
 ### How to Make Changes
