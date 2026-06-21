@@ -37,10 +37,16 @@
 //!
 //! # Blend modes
 //!
-//! Two blend modes are supported per splat: `normal` (source-over) and `multiply`.
-//! Both operate on premultiplied color; the splat's premultiplied color is
-//! `color.rgb * color.a` scaled by the spatial weight, and the splat alpha is
-//! `color.a * weight`.
+//! Five blend modes are supported per splat: `normal` (source-over), `multiply`,
+//! and the additive / lightening modes `add`, `screen`, and `lighten`. All operate
+//! on premultiplied color; the splat's premultiplied color is `color.rgb * color.a`
+//! scaled by the spatial weight, and the splat alpha is `color.a * weight`. The
+//! additive modes reuse `composite.blend@1`'s exact per-channel premultiplied
+//! formulas (`add = s + d`, `screen = s + d − s·d`, `lighten = max(s, d)`), so
+//! splat blending stays consistent with `composite.blend`. `add` and `screen`
+//! accumulate light across overlapping splats (sun glitter, atmospheric glow);
+//! unlike `normal`/`multiply` they are commutative in the premultiplied arithmetic,
+//! but the per-pixel accumulation order still follows the batch array order.
 //!
 //! # Determinism
 //!
@@ -89,14 +95,29 @@ pub const E_SPLAT_BUFFER: &str = "E_SPLAT_BUFFER";
 /// (`IR_SPEC` §16 policy example).
 pub const DEFAULT_MAX_SPLATS: u64 = 100_000;
 
-/// The blend mode this op composites a splat with. Both operate on premultiplied
-/// color.
+/// The blend mode this op composites a splat with. Every mode operates on
+/// premultiplied-linear samples.
+///
+/// `Normal` and `Multiply` are the original splat modes (unchanged). `Add`,
+/// `Screen`, and `Lighten` are the additive / lightening modes for glints and
+/// glow; they reuse `composite.blend@1`'s **exact** per-channel premultiplied
+/// formulas (`crates/paintop-cpu/src/blend.rs`): `add = s + d`,
+/// `screen = s + d − s·d`, `lighten = max(s, d)`, applied identically to color and
+/// alpha. This keeps splat blending consistent with `composite.blend` and
+/// closed-form / bit-exact (`DeterminismTier::Bounded` only through the Gaussian
+/// `exp`, never the blend arithmetic).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BlendMode {
     /// Source-over: the splat composites over the running result.
     Normal,
     /// Multiply: the splat modulates the running result toward its color.
     Multiply,
+    /// Additive: `B(s, d) = s + d` per channel (premultiplied). Accumulates light.
+    Add,
+    /// Screen: `B(s, d) = s + d − s·d` per channel (premultiplied). Lightens.
+    Screen,
+    /// Lighten: `B(s, d) = max(s, d)` per channel (premultiplied). Keeps the brighter.
+    Lighten,
 }
 
 impl BlendMode {
@@ -104,6 +125,12 @@ impl BlendMode {
     const NORMAL: &'static str = "normal";
     /// The token for the multiply mode.
     const MULTIPLY: &'static str = "multiply";
+    /// The token for the additive mode.
+    const ADD: &'static str = "add";
+    /// The token for the screen mode.
+    const SCREEN: &'static str = "screen";
+    /// The token for the lighten mode.
+    const LIGHTEN: &'static str = "lighten";
 
     /// Parse a blend-mode token, defaulting to [`Normal`](Self::Normal) when
     /// absent.
@@ -117,11 +144,15 @@ impl BlendMode {
         match token {
             Self::NORMAL => Ok(Self::Normal),
             Self::MULTIPLY => Ok(Self::Multiply),
+            Self::ADD => Ok(Self::Add),
+            Self::SCREEN => Ok(Self::Screen),
+            Self::LIGHTEN => Ok(Self::Lighten),
             other => Err(Error::new(
                 ErrorClass::Schema,
                 E_SPLAT_PARAM,
                 format!(
-                    "paint.gaussian_splats only supports `blend: normal | multiply`, got `{other}`"
+                    "paint.gaussian_splats supports `blend: normal | multiply | add | screen | \
+                     lighten`, got `{other}`"
                 ),
             )),
         }
@@ -148,6 +179,70 @@ struct Splat {
     opacity: f64,
     /// How this splat composites with the running result.
     blend: BlendMode,
+    /// The super-Gaussian falloff exponent `p ≥ 1` derived from `hardness`. `p = 1`
+    /// (the default, `hardness = 0`) is the pure Gaussian; larger `p` flattens the
+    /// core and tightens the edge. See [`FalloffProfile`].
+    falloff: FalloffProfile,
+}
+
+/// The per-splat falloff profile: a super-Gaussian exponent `p ≥ 1` parameterized by
+/// a `hardness ∈ [0, 1]`.
+///
+/// The spatial weight is `opacity · exp(−½ · m^p)` where `m` is the Mahalanobis
+/// distance. `p = 1` (`hardness = 0`, the default) is the **pure Gaussian**, exactly
+/// today's behavior, evaluated without any `powf` so it stays bit-identical. For
+/// `p > 1` the profile is a super-Gaussian: for `m < 1` (the core) `m^p < m`, so the
+/// weight is *closer to its peak* (a flatter core); for `m > 1` (the skirt)
+/// `m^p > m`, so the weight decays *faster* (a tighter edge). The peak, center, and
+/// the support extent are unchanged — `m^p` is monotone in `m` and the support box
+/// (computed at `p = 1`) is conservative for every `p ≥ 1`, because the underflow
+/// cutoff `m = 1500^{1/p} ≤ 1500` only shrinks as `p` grows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FalloffProfile {
+    /// The super-Gaussian exponent `p ≥ 1`.
+    exponent: f64,
+}
+
+impl FalloffProfile {
+    /// The pure-Gaussian profile (`p = 1`), the default.
+    const GAUSSIAN: Self = Self { exponent: 1.0 };
+
+    /// The maximum super-Gaussian exponent, reached at `hardness = 1`. A flat-topped
+    /// near-disk dab; `p = 8` is hard-edged without overflowing `m^p` for the small
+    /// `m` the kernel evaluates (the support box keeps `m ≲ 1500`).
+    const MAX_EXPONENT: f64 = 8.0;
+
+    /// Build a profile from an optional `hardness ∈ [0, 1]`: `p = 1 + hardness·7`,
+    /// so `hardness = 0` is the pure Gaussian and `hardness = 1` is the hardest dab.
+    ///
+    /// # Errors
+    /// [`schema`](ErrorClass::Schema) if `hardness` is non-finite or out of `[0, 1]`.
+    fn resolve(value: Option<&serde_json::Value>, name: &str) -> Result<Self> {
+        let Some(value) = value else {
+            return Ok(Self::GAUSSIAN);
+        };
+        let hardness = unit(value, name)?;
+        Ok(Self {
+            exponent: hardness.mul_add(Self::MAX_EXPONENT - 1.0, 1.0),
+        })
+    }
+
+    /// Remap a Mahalanobis distance `m` through the profile: `m^p`. At `p = 1` this
+    /// returns `m` *exactly* (no `powf`), so the pure-Gaussian path is bit-identical
+    /// to the original kernel.
+    #[must_use]
+    #[allow(
+        clippy::float_cmp,
+        reason = "the p == 1 branch is an exact-default guard: it must select the \
+                  no-powf path bit-for-bit when hardness is 0 / absent"
+    )]
+    fn remap(self, m: f64) -> f64 {
+        if self.exponent == 1.0 {
+            m
+        } else {
+            m.powf(self.exponent)
+        }
+    }
 }
 
 impl Splat {
@@ -189,6 +284,8 @@ impl Splat {
 
         let blend = BlendMode::parse(get("blend"))?;
 
+        let falloff = FalloffProfile::resolve(get("hardness"), &splat_field(index, "hardness"))?;
+
         Ok(Self {
             cx,
             cy,
@@ -198,6 +295,7 @@ impl Splat {
             color,
             opacity,
             blend,
+            falloff,
         })
     }
 
@@ -217,9 +315,103 @@ impl Splat {
         let nu = local_u / self.sigma_x;
         let nv = local_v / self.sigma_y;
         let mahalanobis = nu.mul_add(nu, nv * nv);
-        self.opacity * (-0.5 * mahalanobis).exp()
+        // The falloff profile remaps the Mahalanobis distance: `m^p` (p = 1 by
+        // default, returning `m` exactly, so the pure-Gaussian weight is unchanged).
+        let shaped = self.falloff.remap(mahalanobis);
+        self.opacity * (-0.5 * shaped).exp()
+    }
+
+    /// The axis-aligned half-extents (in pixels) of the conservative support box:
+    /// outside `(cx ± hx, cy ± hy)` every sample's Gaussian weight is **exactly
+    /// `0.0`** in `f64`, so compositing it is bit-for-bit the identity.
+    ///
+    /// The weight `opacity·exp(−½·m)` (with the Mahalanobis distance `m`) is exactly
+    /// zero once `exp(−½·m)` underflows the `f64` range, which happens for
+    /// `−½·m < ln(f64::MIN_POSITIVE-subnormal) ≈ −745.13`, i.e. `m ≳ 1490.4`. We use
+    /// a *larger* cutoff [`SUPPORT_MAHALANOBIS`] so the box is strictly conservative:
+    /// it can only ever be too big, never too small, so no nonzero-weight pixel is
+    /// skipped.
+    ///
+    /// For the rotated, anisotropic precision the level set `m = K²` is an ellipse
+    /// whose axis-aligned bounding box has half-extents `K·√Σxx` and `K·√Σyy`, where
+    /// `Σ = R·diag(σx², σy²)·Rᵀ`, so `Σxx = (σx·cosθ)² + (σy·sinθ)²` and
+    /// `Σyy = (σx·sinθ)² + (σy·cosθ)²`. (This is the standard 1-σ→k-σ bounding box of
+    /// an oriented Gaussian.)
+    #[must_use]
+    fn support_half_extents(&self) -> (f64, f64) {
+        let (sin, cos) = self.angle_rad.sin_cos();
+        let cs = cos * self.sigma_x;
+        let sc = sin * self.sigma_y;
+        let ss = sin * self.sigma_x;
+        let cc = cos * self.sigma_y;
+        // Σxx = (σx·cosθ)² + (σy·sinθ)²; Σyy = (σx·sinθ)² + (σy·cosθ)².
+        let var_xx = cs.mul_add(cs, sc * sc);
+        let var_yy = ss.mul_add(ss, cc * cc);
+        let k = SUPPORT_K;
+        (k * var_xx.sqrt(), k * var_yy.sqrt())
+    }
+
+    /// The conservative half-open pixel bounding box `[x0, x1) × [y0, y1)` of this
+    /// splat's support, clamped to a `width × height` canvas. Every pixel outside it
+    /// has weight exactly `0.0` (see [`support_half_extents`](Self::support_half_extents)),
+    /// so the un-culled accumulation is bit-identical to evaluating only this box.
+    ///
+    /// Returns an empty box (`x0 == x1` or `y0 == y1`) when the support lies entirely
+    /// outside the canvas — the splat then contributes nothing.
+    #[must_use]
+    fn support_box(&self, width: usize, height: usize) -> (usize, usize, usize, usize) {
+        let (hx, hy) = self.support_half_extents();
+        // Pixel `i` covers continuous coordinate `i + 0.5`; the support spans
+        // continuous `[cx − hx, cx + hx]`, so the first/last potentially-nonzero
+        // pixel columns are floor(cx − hx − 0.5) .. ceil(cx + hx − 0.5). We widen by
+        // one pixel on each side for total safety against the −0.5 sample offset and
+        // f64 rounding; an over-wide box is always bit-safe (it only evaluates extra
+        // exactly-zero pixels), never wrong.
+        let span = |center: f64, half: f64, limit: usize| -> (usize, usize) {
+            if !(center.is_finite() && half.is_finite()) {
+                return (0, limit);
+            }
+            let lo = center - half - 1.0;
+            let hi = center + half + 1.0;
+            // Clamp to the canvas; an entirely-off-canvas support yields an empty box.
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss,
+                reason = "bounds are clamped into [0, limit] which is a small pixel count"
+            )]
+            {
+                let lo_px = lo.floor().clamp(0.0, limit as f64) as usize;
+                let hi_px = (hi.ceil().clamp(0.0, limit as f64) as usize).max(lo_px);
+                (lo_px, hi_px)
+            }
+        };
+        let (x0, x1) = span(self.cx, hx, width);
+        let (y0, y1) = span(self.cy, hy, height);
+        (x0, y0, x1, y1)
     }
 }
+
+/// The Mahalanobis-distance cutoff (`K`, in σ-units) of the conservative support
+/// box: at `m = K²` the Gaussian weight is already exactly `0.0` in `f64`, so the
+/// box of the `m = K²` ellipse encloses every nonzero-weight pixel.
+///
+/// `exp(x)` underflows to exactly `0.0` for `x ≲ −745.13`, i.e. `−½·m ≲ −745.13`
+/// → `m ≳ 1490.4`. We round the cutoff `m` *up* to `1500` for a strictly
+/// conservative (slightly larger) box, and take `K = √1500 ≈ 38.73`.
+const SUPPORT_MAHALANOBIS: f64 = 1500.0;
+
+/// `K = √SUPPORT_MAHALANOBIS`, the σ-multiple of the conservative support box.
+const SUPPORT_K: f64 = 38.729_833_462_074_17; // √1500
+
+/// Pin `SUPPORT_K² == SUPPORT_MAHALANOBIS` so the σ-multiple and the underflow
+/// cutoff can never drift apart, and pin the cutoff above the `f64` `exp` underflow
+/// threshold (`m ≳ 1490.4`) so the box is provably conservative.
+const _: () = {
+    assert!(SUPPORT_K * SUPPORT_K >= SUPPORT_MAHALANOBIS - 1e-6);
+    assert!(SUPPORT_K * SUPPORT_K <= SUPPORT_MAHALANOBIS + 1e-6);
+    assert!(SUPPORT_MAHALANOBIS > 1490.4);
+};
 
 /// A premultiplied RGBA pixel as `f64` for accumulation.
 #[derive(Debug, Clone, Copy)]
@@ -273,6 +465,32 @@ impl Splat {
                     a: dst.a.mul_add(inv, src.a),
                 }
             }
+            // The additive / lightening modes reuse `composite.blend@1`'s exact
+            // per-channel premultiplied formulas (blend.rs), applied identically to
+            // every channel including alpha. The splat's coverage is already baked
+            // into the premultiplied `src`, so the blend is the pure `B(s, d)` with
+            // no further opacity/mask mix (k ≡ 1).
+            BlendMode::Add => Pixel {
+                // s + d.
+                r: src.r + dst.r,
+                g: src.g + dst.g,
+                b: src.b + dst.b,
+                a: src.a + dst.a,
+            },
+            BlendMode::Screen => Pixel {
+                // s + d − s·d, fused as s·(−d) + (s + d) to match blend.rs exactly.
+                r: src.r.mul_add(-dst.r, src.r + dst.r),
+                g: src.g.mul_add(-dst.g, src.g + dst.g),
+                b: src.b.mul_add(-dst.b, src.b + dst.b),
+                a: src.a.mul_add(-dst.a, src.a + dst.a),
+            },
+            BlendMode::Lighten => Pixel {
+                // max(s, d).
+                r: src.r.max(dst.r),
+                g: src.g.max(dst.g),
+                b: src.b.max(dst.b),
+                a: src.a.max(dst.a),
+            },
         }
     }
 }
@@ -339,8 +557,74 @@ impl SplatRequest {
     /// Paint the batch onto a premultiplied RGBA base, returning the row-major
     /// interleaved `f32` result. `channels` must be 4 (RGBA); other layouts are
     /// rejected upstream by [`check_base`].
+    ///
+    /// **Bounding-box culling.** Each splat is composited *only* within its
+    /// conservative support box ([`Splat::support_box`]); pixels outside that box
+    /// have a Gaussian weight of exactly `0.0` in `f64`, and compositing a
+    /// zero-weight splat is the bit-exact identity (`Normal`:
+    /// `dst·1 + 0 = dst`; `Multiply`: `dst·1 + dst·color·0 = dst`). The running
+    /// accumulator is mutated in array order, so splat `k` still composites over the
+    /// result of splats `0..k` at every pixel exactly as the un-culled loop would —
+    /// the only change is that the no-op pixels are never visited. The result is
+    /// therefore **bit-identical** to the per-pixel-over-all-splats reference, while
+    /// the cost drops from `O(W·H·N)` to the sum of the splats' covered areas.
     #[must_use]
     fn paint(&self, base: &[f32], extent: Extent) -> Vec<f32> {
+        let width = extent.width as usize;
+        let height = extent.height as usize;
+
+        // The premultiplied f64 accumulator, seeded from the base. Each splat
+        // composites in place over its support box; pixels never visited keep their
+        // base value (== compositing every splat at weight 0).
+        let mut acc: Vec<Pixel> = base
+            .chunks_exact(4)
+            .map(|p| Pixel {
+                r: f64::from(p[0]),
+                g: f64::from(p[1]),
+                b: f64::from(p[2]),
+                a: f64::from(p[3]),
+            })
+            .collect();
+
+        for splat in &self.splats {
+            let (x0, y0, x1, y1) = splat.support_box(width, height);
+            for j in y0..y1 {
+                #[allow(clippy::cast_precision_loss, reason = "pixel index well within f64")]
+                let y = j as f64 + 0.5;
+                let row = j * width;
+                for i in x0..x1 {
+                    #[allow(clippy::cast_precision_loss, reason = "pixel index well within f64")]
+                    let x = i as f64 + 0.5;
+                    let cell = &mut acc[row + i];
+                    let weight = splat.weight(x, y);
+                    *cell = splat.composite(*cell, weight);
+                }
+            }
+        }
+
+        let mut out = Vec::with_capacity(base.len());
+        for pixel in &acc {
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "premultiplied accumulation stored as the image's f32"
+            )]
+            {
+                out.push(pixel.r as f32);
+                out.push(pixel.g as f32);
+                out.push(pixel.b as f32);
+                out.push(pixel.a as f32);
+            }
+        }
+        out
+    }
+
+    /// The un-culled reference accumulation: composite **every** splat at **every**
+    /// pixel in array order, evaluating the full Gaussian per (pixel, splat). This is
+    /// the semantic oracle the culled [`paint`](Self::paint) must match
+    /// bit-for-bit; it is retained behind `cfg(test)` as the differential baseline.
+    #[cfg(test)]
+    #[must_use]
+    fn paint_unculled(&self, base: &[f32], extent: Extent) -> Vec<f32> {
         let width = extent.width as usize;
         let height = extent.height as usize;
         let mut out = Vec::with_capacity(base.len());
@@ -605,7 +889,9 @@ impl GaussianSplats {
                     default: None,
                     choices: vec![],
                     doc: "The inline batch of splat objects { center_px, sigma_px, angle_rad?, \
-                          color, opacity?, blend? }; accumulated in array order. May be empty."
+                          color, opacity?, blend?, hardness? }; accumulated in array order. May be \
+                          empty. `hardness` in [0,1] (default 0) shapes the falloff: 0 is the pure \
+                          Gaussian, higher values flatten the core and tighten the edge."
                         .to_owned(),
                 },
                 ParamSpec {

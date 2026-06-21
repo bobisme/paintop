@@ -11,6 +11,7 @@
 //! `anyhow` is used here because `xtask` is a workspace *binary*, where the
 //! M0 decisions permit it (library crates use the typed `paintop-ir` taxonomy).
 
+mod perf;
 mod verify_op;
 
 use anyhow::{Result, bail};
@@ -42,6 +43,36 @@ enum Command {
     /// Validate an operation manifest file against the schema and its internal
     /// consistency rules.
     ValidateManifest(ValidateManifestArgs),
+    /// Measure backend performance baselines (op, backend, size, throughput) and
+    /// emit a CI artifact; optionally flag regressions against a reference.
+    PerfBaseline(PerfBaselineArgs),
+    /// Probe for a `wgpu` GPU adapter: exit 0 when one is present (printing its
+    /// identity), non-zero when none is — the M3 gate's adapter check.
+    GpuProbe,
+}
+
+/// Arguments for `xtask perf-baseline`.
+#[derive(Debug, Parser)]
+struct PerfBaselineArgs {
+    /// Output path for the emitted baseline artifact JSON.
+    #[arg(long, default_value = "target/verification/perf/baseline.json")]
+    out: std::path::PathBuf,
+    /// An optional reference baseline to compare against. When set, a regression
+    /// beyond `--threshold` causes a non-zero exit (the CI perf gate).
+    #[arg(long)]
+    baseline: Option<std::path::PathBuf>,
+    /// The fractional throughput-drop slack before a row is flagged a regression
+    /// (e.g. `0.25` allows a 25% drop on noisy CI hardware).
+    #[arg(long, default_value_t = 0.25)]
+    threshold: f64,
+    /// A machine/runner identity recorded in the artifact so a comparison only
+    /// runs against the same machine class. Defaults to the `PAINTOP_PERF_MACHINE`
+    /// env var, then `"local"`.
+    #[arg(long)]
+    machine: Option<String>,
+    /// Skip the GPU sweep even when an adapter is present (CPU-only artifact).
+    #[arg(long)]
+    no_gpu: bool,
 }
 
 /// Arguments for `xtask validate-manifest`.
@@ -181,7 +212,41 @@ fn dispatch(command: Command) -> Result<()> {
         Command::Fixture(FixtureCommand::Generate(args)) => fixture_generate(&args),
         Command::Schema => schema(),
         Command::ValidateManifest(args) => validate_manifest(&args.path),
+        Command::PerfBaseline(args) => perf_baseline(&args),
+        Command::GpuProbe => gpu_probe(),
     }
+}
+
+/// Probe for a `wgpu` adapter. Prints the adapter identity and exits 0 when one is
+/// present; returns an error (non-zero exit) when none is — the M3 gate uses the
+/// exit status to decide whether the GPU criteria run on hardware or self-skip.
+fn gpu_probe() -> Result<()> {
+    match paintop_wgpu::probe() {
+        Ok(context) => {
+            let id = context.identity();
+            println!(
+                "gpu-probe: adapter present — {} ({}, backend {})",
+                id.name, id.device_type, id.backend
+            );
+            Ok(())
+        }
+        Err(unavailable) => bail!("gpu-probe: no adapter present: {unavailable}"),
+    }
+}
+
+/// Run the performance-baseline sweep, write the artifact, and (when `--baseline`
+/// is supplied) gate on regressions beyond `--threshold`.
+fn perf_baseline(args: &PerfBaselineArgs) -> Result<()> {
+    let machine = args.machine.clone().unwrap_or_else(|| {
+        std::env::var("PAINTOP_PERF_MACHINE").unwrap_or_else(|_| "local".to_string())
+    });
+    perf::run(&perf::PerfOptions {
+        out: args.out.clone(),
+        baseline: args.baseline.clone(),
+        threshold: args.threshold,
+        machine,
+        no_gpu: args.no_gpu,
+    })
 }
 
 /// Print the operation-manifest JSON Schema to stdout.

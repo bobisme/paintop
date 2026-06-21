@@ -1,0 +1,189 @@
+{
+  "schema": 1,
+  "machine": "rtx3090-dev",
+  "profile": "release",
+  "rows": [
+    {
+      "op": "alpha.premultiply@1",
+      "backend": "cpu.optimized",
+      "size_px": 65536,
+      "ns_per_call": 126160.0,
+      "throughput_mpps": 519.4673430564362
+    },
+    {
+      "op": "alpha.premultiply@1",
+      "backend": "cpu.optimized",
+      "size_px": 1048576,
+      "ns_per_call": 3459121.75,
+      "throughput_mpps": 303.1335916407105
+    },
+    {
+      "op": "alpha.premultiply@1",
+      "backend": "cpu.reference",
+      "size_px": 65536,
+      "ns_per_call": 117060.0,
+      "throughput_mpps": 559.8496497522638
+    },
+    {
+      "op": "alpha.premultiply@1",
+      "backend": "cpu.reference",
+      "size_px": 1048576,
+      "ns_per_call": 3250659.25,
+      "throughput_mpps": 322.573336470133
+    },
+    {
+      "op": "alpha.unpremultiply@1",
+      "backend": "cpu.optimized",
+      "size_px": 65536,
+      "ns_per_call": 198944.75,
+      "throughput_mpps": 329.41809220901786
+    },
+    {
+      "op": "alpha.unpremultiply@1",
+      "backend": "cpu.optimized",
+      "size_px": 1048576,
+      "ns_per_call": 4468141.5,
+      "throughput_mpps": 234.67833326227472
+    },
+    {
+      "op": "alpha.unpremultiply@1",
+      "backend": "cpu.reference",
+      "size_px": 65536,
+      "ns_per_call": 197442.5,
+      "throughput_mpps": 331.92448434354304
+    },
+    {
+      "op": "alpha.unpremultiply@1",
+      "backend": "cpu.reference",
+      "size_px": 1048576,
+      "ns_per_call": 4478591.25,
+      "throughput_mpps": 234.13076600817274
+    },
+    {
+      "op": "color.adjust@1",
+      "backend": "cpu.optimized",
+      "size_px": 65536,
+      "ns_per_call": 1268187.25,
+      "throughput_mpps": 51.67691127631192
+    },
+    {
+      "op": "color.adjust@1",
+      "backend": "cpu.optimized",
+      "size_px": 1048576,
+      "ns_per_call": 21502442.5,
+      "throughput_mpps": 48.765436763753705
+    },
+    {
+      "op": "color.adjust@1",
+      "backend": "cpu.reference",
+      "size_px": 65536,
+      "ns_per_call": 784872.25,
+      "throughput_mpps": 83.4989388400469
+    },
+    {
+      "op": "color.adjust@1",
+      "backend": "cpu.reference",
+      "size_px": 1048576,
+      "ns_per_call": 13711936.75,
+      "throughput_mpps": 76.47176464695988
+    },
+    {
+      "op": "color.convert@1",
+      "backend": "cpu.optimized",
+      "size_px": 65536,
+      "ns_per_call": 1541247.0,
+      "throughput_mpps": 42.52141285595365
+    },
+    {
+      "op": "color.convert@1",
+      "backend": "cpu.optimized",
+      "size_px": 1048576,
+      "ns_per_call": 26056481.5,
+      "throughput_mpps": 40.24242490299391
+    },
+    {
+      "op": "color.convert@1",
+      "backend": "cpu.reference",
+      "size_px": 65536,
+      "ns_per_call": 1846017.0,
+      "throughput_mpps": 35.50129820039577
+    },
+    {
+      "op": "color.convert@1",
+      "backend": "cpu.reference",
+      "size_px": 1048576,
+      "ns_per_call": 29928803.25,
+      "throughput_mpps": 35.035680887106636
+    },
+    {
+      "op": "composite.blend@1",
+      "backend": "cpu.optimized",
+      "size_px": 65536,
+      "ns_per_call": 1471847.25,
+      "throughput_mpps": 44.5263596477148
+    },
+    {
+      "op": "composite.blend@1",
+      "backend": "cpu.optimized",
+      "size_px": 1048576,
+      "ns_per_call": 24011087.0,
+      "throughput_mpps": 43.67049271863451
+    },
+    {
+      "op": "composite.blend@1",
+      "backend": "cpu.reference",
+      "size_px": 65536,
+      "ns_per_call": 1480044.5,
+      "throughput_mpps": 44.2797496967152
+    },
+    {
+      "op": "composite.blend@1",
+      "backend": "cpu.reference",
+      "size_px": 1048576,
+      "ns_per_call": 23705279.5,
+      "throughput_mpps": 44.23385938140911
+    },
+    {
+      "op": "composite.over@1",
+      "backend": "cpu.optimized",
+      "size_px": 65536,
+      "ns_per_call": 681845.0,
+      "throughput_mpps": 96.1156861163461
+    },
+    {
+      "op": "composite.over@1",
+      "backend": "cpu.optimized",
+      "size_px": 1048576,
+      "ns_per_call": 11522287.25,
+      "throughput_mpps": 91.00415371088756
+    },
+    {
+      "op": "composite.over@1",
+      "backend": "cpu.reference",
+      "size_px": 65536,
+      "ns_per_call": 723555.0,
+      "throughput_mpps": 90.57500811963155
+    },
+    {
+      "op": "composite.over@1",
+      "backend": "cpu.reference",
+      "size_px": 1048576,
+      "ns_per_call": 11687864.75,
+      "throughput_mpps": 89.71493274680476
+    },
+    {
+      "op": "filter.gaussian_blur@1",
+      "backend": "wgpu.separable",
+      "size_px": 262144,
+      "ns_per_call": 5772368.0,
+      "throughput_mpps": 45.4135980242424
+    },
+    {
+      "op": "filter.gaussian_blur@1",
+      "backend": "wgpu.separable",
+      "size_px": 4194304,
+      "ns_per_call": 118994273.0,
+      "throughput_mpps": 35.24794844538443
+    }
+  ]
+}

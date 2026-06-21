@@ -60,7 +60,8 @@
     }
   ],
   "implementations": [
-    "cpu.reference@1"
+    "cpu.reference@1",
+    "cpu.optimized@1"
   ],
   "test": {
     "has_analytic_reference": true,
@@ -79,6 +80,9 @@
         "status": "covered"
       },
       "metamorphic": {
+        "status": "covered"
+      },
+      "differential": {
         "status": "covered"
       },
       "goldens": {

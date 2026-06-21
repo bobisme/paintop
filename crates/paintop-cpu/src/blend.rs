@@ -130,6 +130,22 @@ impl Mode {
         .collect()
     }
 
+    /// Map this restricted mode to the optimized kernel's identical mode set, so
+    /// the optimized backend computes the exact same per-channel arithmetic.
+    const fn to_kernel(self) -> crate::optimized::kernels::BlendMode {
+        use crate::optimized::kernels::BlendMode as K;
+        match self {
+            Self::Normal => K::Normal,
+            Self::Add => K::Add,
+            Self::Subtract => K::Subtract,
+            Self::Multiply => K::Multiply,
+            Self::Screen => K::Screen,
+            Self::Darken => K::Darken,
+            Self::Lighten => K::Lighten,
+            Self::Difference => K::Difference,
+        }
+    }
+
     /// The per-color-channel blend value `B(s, d)`. `inv_alpha_s = 1 − αs` is the
     /// source-over factor for `Normal` (ignored by every other mode).
     fn blend_channel(self, s: f32, d: f32, inv_alpha_s: f32) -> f32 {
@@ -410,7 +426,7 @@ impl Blend {
                     doc: "The global blend opacity in [0, 1]; 0 is the identity on dst.".to_owned(),
                 },
             ],
-            implementations: vec![reference_impl()?],
+            implementations: vec![reference_impl()?, optimized_impl()?],
             test: blend_test_metadata(),
         })
     }
@@ -497,57 +513,115 @@ impl OpContract for Blend {
     }
 }
 
+/// The compute backend serving `composite.blend`: the scalar reference oracle or
+/// the autovectorization-friendly `cpu.optimized` kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    /// The scalar reference oracle ([`blend`]).
+    Reference,
+    /// The `cpu.optimized` blend kernel ([`crate::optimized::kernels`]).
+    Optimized,
+}
+
+/// Shared compute for both backends: validate the three ports + params, then blend.
+fn compute_backend(
+    backend: Backend,
+    inputs: &InputValues,
+    params: &serde_json::Value,
+) -> std::result::Result<OutputValues, Error> {
+    let src = input_value(inputs, "src")?;
+    let dst = input_value(inputs, "dst")?;
+    let mask = input_value(inputs, "mask")?;
+
+    let ResourceDescriptor::Image(src_descriptor) = src.descriptor() else {
+        return Err(input_type_error("src"));
+    };
+    let ResourceDescriptor::Image(dst_descriptor) = dst.descriptor() else {
+        return Err(input_type_error("dst"));
+    };
+    let ResourceDescriptor::Mask(mask_descriptor) = mask.descriptor() else {
+        return Err(Error::new(
+            ErrorClass::Type,
+            E_BLEND_INPUT,
+            "composite.blend `mask` input must be a mask resource".to_owned(),
+        ));
+    };
+
+    let blend_params = BlendParams::resolve(params)?;
+    let out_descriptor =
+        check_and_retarget(src_descriptor, dst_descriptor, mask_descriptor.extent)?;
+    let samples = match backend {
+        Backend::Reference => blend(
+            src.samples(),
+            dst.samples(),
+            mask.samples(),
+            dst.channels(),
+            blend_params,
+        ),
+        Backend::Optimized => crate::optimized::kernels::composite_blend(
+            src.samples(),
+            dst.samples(),
+            mask.samples(),
+            dst.channels() as usize,
+            blend_params.mode.to_kernel(),
+            blend_params.opacity,
+        ),
+    };
+
+    let value = ResourceValue::new(
+        ResourceDescriptor::Image(out_descriptor),
+        dst.channels(),
+        samples,
+    )
+    .map_err(|actual| {
+        Error::new(
+            ErrorClass::Execution,
+            E_BLEND_BUFFER,
+            format!("composite.blend produced a sample buffer of unexpected length {actual}"),
+        )
+    })?;
+
+    let mut out = OutputValues::new();
+    out.insert("image".to_owned(), value);
+    Ok(out)
+}
+
 impl OpImplementation for Blend {
     fn compute(
         &self,
         inputs: &InputValues,
         params: &serde_json::Value,
     ) -> std::result::Result<OutputValues, Error> {
-        let src = input_value(inputs, "src")?;
-        let dst = input_value(inputs, "dst")?;
-        let mask = input_value(inputs, "mask")?;
+        compute_backend(Backend::Reference, inputs, params)
+    }
+}
 
-        let ResourceDescriptor::Image(src_descriptor) = src.descriptor() else {
-            return Err(input_type_error("src"));
-        };
-        let ResourceDescriptor::Image(dst_descriptor) = dst.descriptor() else {
-            return Err(input_type_error("dst"));
-        };
-        let ResourceDescriptor::Mask(mask_descriptor) = mask.descriptor() else {
-            return Err(Error::new(
-                ErrorClass::Type,
-                E_BLEND_INPUT,
-                "composite.blend `mask` input must be a mask resource".to_owned(),
-            ));
-        };
+/// The `cpu.optimized@1` backend for `composite.blend@1`.
+///
+/// It computes the same `out = dst + opacity*mask*(B_mode(src, dst) - dst)` over
+/// the same restricted, exactly-pinned mode set as the oracle, via the
+/// autovectorization-friendly kernel, with the identical `k == 0` verbatim-`dst`
+/// identity. `composite.blend` is [`Exact`](DeterminismTier::Exact), so the
+/// optimized result is **bit-identical** to the reference (the differential harness
+/// enforces it).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BlendOptimized;
 
-        let blend_params = BlendParams::resolve(params)?;
-        let out_descriptor =
-            check_and_retarget(src_descriptor, dst_descriptor, mask_descriptor.extent)?;
-        let samples = blend(
-            src.samples(),
-            dst.samples(),
-            mask.samples(),
-            dst.channels(),
-            blend_params,
-        );
+impl BlendOptimized {
+    /// Construct the optimized blend backend.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
-        let value = ResourceValue::new(
-            ResourceDescriptor::Image(out_descriptor),
-            dst.channels(),
-            samples,
-        )
-        .map_err(|actual| {
-            Error::new(
-                ErrorClass::Execution,
-                E_BLEND_BUFFER,
-                format!("composite.blend produced a sample buffer of unexpected length {actual}"),
-            )
-        })?;
-
-        let mut out = OutputValues::new();
-        out.insert("image".to_owned(), value);
-        Ok(out)
+impl OpImplementation for BlendOptimized {
+    fn compute(
+        &self,
+        inputs: &InputValues,
+        params: &serde_json::Value,
+    ) -> std::result::Result<OutputValues, Error> {
+        compute_backend(Backend::Optimized, inputs, params)
     }
 }
 
@@ -579,6 +653,11 @@ fn reference_impl() -> Result<ImplId> {
     ImplId::new("cpu", "reference", 1)
 }
 
+/// The `cpu.optimized@1` autovectorized backend implementation id.
+fn optimized_impl() -> Result<ImplId> {
+    ImplId::new("cpu", "optimized", 1)
+}
+
 /// The verification declarations for `composite.blend@1`: an exact,
 /// single-reference per-channel blend over a restricted, exactly-pinned mode set.
 /// Differential does not apply (one implementation). Perceptual is not applicable:
@@ -594,6 +673,9 @@ fn blend_test_metadata() -> TestMetadata {
         VerificationCategory::AnalyticFixtures,
         VerificationCategory::PropertyTests,
         VerificationCategory::Metamorphic,
+        // The op now exposes a cpu.optimized backend, so differential testing
+        // applies: the cross-backend harness validates it against the oracle.
+        VerificationCategory::Differential,
         VerificationCategory::Goldens,
         VerificationCategory::Fuzzing,
         VerificationCategory::Performance,

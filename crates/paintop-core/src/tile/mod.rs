@@ -19,10 +19,11 @@
 pub mod execute;
 pub mod grid;
 pub mod mask_summary;
+pub mod parallel;
 pub mod reduce;
 pub mod schedule;
 
-pub use execute::{TileStats, TiledExecution, execute_tiled, export_region};
+pub use execute::{TileStats, TiledExecution, execute_tiled, execute_tiled_with, export_region};
 pub use grid::{
     DEFAULT_TILE_SIZE, HaloClass, SMALL_TILE_SIZE, Tile, TileGrid, classify_halo,
     input_tile_region, is_raster_kind,
@@ -30,6 +31,7 @@ pub use grid::{
 pub use mask_summary::{
     MaskSummary, MaskTileSummary, Occupancy, dense_nonzero_bounds, summarize_tile,
 };
+pub use parallel::ThreadCap;
 pub use reduce::{ArgMax, Extremum, TiledSum, pairwise_sum};
 pub use schedule::{
     LivenessPoint, LivenessTrace, TileInput, TileSchedule, TileWorkItem, schedule_tiles,

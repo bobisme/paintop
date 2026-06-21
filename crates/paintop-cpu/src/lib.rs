@@ -39,6 +39,7 @@ pub mod mask_polygon;
 pub mod mask_to_sdf;
 pub mod mask_topology;
 pub mod materialize;
+pub mod optimized;
 pub mod pad;
 pub mod pipeline;
 pub mod registry;

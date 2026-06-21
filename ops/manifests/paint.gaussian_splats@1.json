@@ -26,7 +26,7 @@
       "name": "splats",
       "type": "json",
       "required": true,
-      "doc": "The inline batch of splat objects { center_px, sigma_px, angle_rad?, color, opacity?, blend? }; accumulated in array order. May be empty."
+      "doc": "The inline batch of splat objects { center_px, sigma_px, angle_rad?, color, opacity?, blend?, hardness? }; accumulated in array order. May be empty. `hardness` in [0,1] (default 0) shapes the falloff: 0 is the pure Gaussian, higher values flatten the core and tighten the edge."
     },
     {
       "name": "space",

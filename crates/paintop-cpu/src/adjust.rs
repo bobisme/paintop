@@ -327,7 +327,7 @@ impl Adjust {
                         .to_owned(),
                 },
             ],
-            implementations: vec![reference_impl()?],
+            implementations: vec![reference_impl()?, optimized_impl()?],
             test: adjust_test_metadata(),
         })
     }
@@ -398,78 +398,156 @@ impl OpContract for Adjust {
     }
 }
 
+/// The compute backend serving `color.adjust`: the scalar reference oracle or the
+/// autovectorization-friendly `cpu.optimized` kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    /// The scalar reference oracle ([`adjust_samples`]).
+    Reference,
+    /// The `cpu.optimized` grade kernel ([`crate::optimized::kernels`]).
+    Optimized,
+}
+
+/// Apply the grade with the selected backend; both compute the same fixed-order
+/// adjustment (exposure -> temperature -> saturation) with the same mask blend.
+fn apply_backend(
+    backend: Backend,
+    samples: &[f32],
+    channels: u32,
+    has_alpha: bool,
+    adjustment: Adjustment,
+    mask: Option<&[f32]>,
+) -> Vec<f32> {
+    match backend {
+        Backend::Reference => adjust_samples(samples, channels, has_alpha, adjustment, mask),
+        Backend::Optimized => {
+            let stride = channels as usize;
+            let color_count = color_channel_count(channels, has_alpha);
+            crate::optimized::kernels::color_adjust(
+                samples,
+                stride,
+                color_count,
+                crate::optimized::kernels::Adjustment {
+                    exposure_ev: adjustment.exposure_ev,
+                    saturation: adjustment.saturation,
+                    temperature: adjustment.temperature,
+                },
+                mask,
+            )
+        }
+    }
+}
+
+/// Shared compute for both backends: validate the image/mask/params, then grade.
+fn compute_backend(
+    backend: Backend,
+    inputs: &InputValues,
+    params: &serde_json::Value,
+) -> std::result::Result<OutputValues, Error> {
+    let image = inputs.get("image").ok_or_else(|| {
+        Error::new(
+            ErrorClass::Reference,
+            E_ADJUST_INPUT,
+            "color.adjust requires an `image` input value".to_owned(),
+        )
+    })?;
+    let ResourceDescriptor::Image(descriptor) = image.descriptor() else {
+        return Err(Error::new(
+            ErrorClass::Type,
+            E_ADJUST_INPUT,
+            "color.adjust `image` input must be an image resource".to_owned(),
+        ));
+    };
+    require_linear(descriptor.color)?;
+
+    let adjustment = Adjustment::resolve(params)?;
+
+    // An optional mask gates the grade per pixel; it must size to the image.
+    let mask_samples = match inputs.get("mask") {
+        None => None,
+        Some(mask_value) => {
+            let ResourceDescriptor::Mask(mask_desc) = mask_value.descriptor() else {
+                return Err(Error::new(
+                    ErrorClass::Type,
+                    E_ADJUST_MASK,
+                    "color.adjust `mask` input must be a mask resource".to_owned(),
+                ));
+            };
+            if mask_desc.extent != descriptor.extent {
+                return Err(mask_extent_error(mask_desc.extent, descriptor.extent));
+            }
+            Some(mask_value.samples())
+        }
+    };
+
+    // A pure-identity request with no mask is a verbatim passthrough, avoiding
+    // any floating-point perturbation of the samples — on either backend.
+    let samples = if adjustment.is_identity() && mask_samples.is_none() {
+        image.samples().to_vec()
+    } else {
+        apply_backend(
+            backend,
+            image.samples(),
+            image.channels(),
+            descriptor.layout.has_alpha(),
+            adjustment,
+            mask_samples,
+        )
+    };
+
+    let value = ResourceValue::new(
+        ResourceDescriptor::Image(*descriptor),
+        image.channels(),
+        samples,
+    )
+    .map_err(|actual| {
+        Error::new(
+            ErrorClass::Execution,
+            E_ADJUST_INPUT,
+            format!("color.adjust produced a sample buffer of unexpected length {actual}"),
+        )
+    })?;
+
+    let mut out = OutputValues::new();
+    out.insert("image".to_owned(), value);
+    Ok(out)
+}
+
 impl OpImplementation for Adjust {
     fn compute(
         &self,
         inputs: &InputValues,
         params: &serde_json::Value,
     ) -> std::result::Result<OutputValues, Error> {
-        let image = inputs.get("image").ok_or_else(|| {
-            Error::new(
-                ErrorClass::Reference,
-                E_ADJUST_INPUT,
-                "color.adjust requires an `image` input value".to_owned(),
-            )
-        })?;
-        let ResourceDescriptor::Image(descriptor) = image.descriptor() else {
-            return Err(Error::new(
-                ErrorClass::Type,
-                E_ADJUST_INPUT,
-                "color.adjust `image` input must be an image resource".to_owned(),
-            ));
-        };
-        require_linear(descriptor.color)?;
+        compute_backend(Backend::Reference, inputs, params)
+    }
+}
 
-        let adjustment = Adjustment::resolve(params)?;
+/// The `cpu.optimized@1` backend for `color.adjust@1`.
+///
+/// It applies the same fixed-order exposure/temperature/saturation grade as the
+/// oracle, computed by the autovectorization-friendly kernel. `color.adjust` is
+/// [`Bounded`](DeterminismTier::Bounded) (the `exp2` last bit varies), and the
+/// kernel mirrors the reference operation order, so the result stays within the
+/// op's envelope (the differential harness enforces it).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AdjustOptimized;
 
-        // An optional mask gates the grade per pixel; it must size to the image.
-        let mask_samples = match inputs.get("mask") {
-            None => None,
-            Some(mask_value) => {
-                let ResourceDescriptor::Mask(mask_desc) = mask_value.descriptor() else {
-                    return Err(Error::new(
-                        ErrorClass::Type,
-                        E_ADJUST_MASK,
-                        "color.adjust `mask` input must be a mask resource".to_owned(),
-                    ));
-                };
-                if mask_desc.extent != descriptor.extent {
-                    return Err(mask_extent_error(mask_desc.extent, descriptor.extent));
-                }
-                Some(mask_value.samples())
-            }
-        };
+impl AdjustOptimized {
+    /// Construct the optimized adjust backend.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
-        // A pure-identity request with no mask is a verbatim passthrough, avoiding
-        // any floating-point perturbation of the samples.
-        let samples = if adjustment.is_identity() && mask_samples.is_none() {
-            image.samples().to_vec()
-        } else {
-            adjust_samples(
-                image.samples(),
-                image.channels(),
-                descriptor.layout.has_alpha(),
-                adjustment,
-                mask_samples,
-            )
-        };
-
-        let value = ResourceValue::new(
-            ResourceDescriptor::Image(*descriptor),
-            image.channels(),
-            samples,
-        )
-        .map_err(|actual| {
-            Error::new(
-                ErrorClass::Execution,
-                E_ADJUST_INPUT,
-                format!("color.adjust produced a sample buffer of unexpected length {actual}"),
-            )
-        })?;
-
-        let mut out = OutputValues::new();
-        out.insert("image".to_owned(), value);
-        Ok(out)
+impl OpImplementation for AdjustOptimized {
+    fn compute(
+        &self,
+        inputs: &InputValues,
+        params: &serde_json::Value,
+    ) -> std::result::Result<OutputValues, Error> {
+        compute_backend(Backend::Optimized, inputs, params)
     }
 }
 
@@ -530,6 +608,11 @@ fn reference_impl() -> Result<ImplId> {
     ImplId::new("cpu", "reference", 1)
 }
 
+/// The `cpu.optimized@1` autovectorized backend implementation id.
+fn optimized_impl() -> Result<ImplId> {
+    ImplId::new("cpu", "optimized", 1)
+}
+
 /// The verification declarations for `color.adjust@1`: a single-reference,
 /// bounded, pointwise grading op. Differential does not apply (one
 /// implementation). Perceptual is not applicable: the adjustment is a closed-form
@@ -546,6 +629,9 @@ fn adjust_test_metadata() -> TestMetadata {
         VerificationCategory::AnalyticFixtures,
         VerificationCategory::PropertyTests,
         VerificationCategory::Metamorphic,
+        // The op now exposes a cpu.optimized backend, so differential testing
+        // applies: the cross-backend harness validates it against the oracle.
+        VerificationCategory::Differential,
         VerificationCategory::Goldens,
         VerificationCategory::Fuzzing,
         VerificationCategory::Performance,

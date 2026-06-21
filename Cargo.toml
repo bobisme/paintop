@@ -5,6 +5,7 @@ members = [
     "crates/paintop-image",
     "crates/paintop-core",
     "crates/paintop-cpu",
+    "crates/paintop-wgpu",
     "crates/paintop-testkit",
     "crates/paintop-cli",
     "xtask",
@@ -23,6 +24,7 @@ paintop-ir = { path = "crates/paintop-ir" }
 paintop-image = { path = "crates/paintop-image" }
 paintop-core = { path = "crates/paintop-core" }
 paintop-cpu = { path = "crates/paintop-cpu" }
+paintop-wgpu = { path = "crates/paintop-wgpu" }
 paintop-testkit = { path = "crates/paintop-testkit" }
 
 # Shared third-party pins (matched to ../msh per M0_DECISIONS.md D4)
@@ -37,6 +39,15 @@ blake3 = "1.5"
 sha2 = "0.10"
 anyhow = "1.0"
 proptest = "1.5"
+# Scheduler-owned tile parallelism (M3 §12.2). Pinned to the 1.x line already in
+# the lock (pulled in transitively by `image`); the scheduler owns the pool and
+# caps its width, so no op spawns its own.
+rayon = "1.12"
+# GPU backend (M3 §12.3). PINNED to major 27 to stay aligned with msh
+# (../msh/Cargo.toml uses `wgpu = "27"`). NO wgpu major upgrade in this work.
+wgpu = "27"
+# Block on wgpu's async adapter/device requests without an async runtime.
+pollster = "0.4"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

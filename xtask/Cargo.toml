@@ -11,10 +11,16 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+paintop-cpu.workspace = true
 paintop-ir.workspace = true
 paintop-testkit.workspace = true
+paintop-wgpu.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Used only to name the GPU pipeline-cache element type
+# (`PipelineCache<wgpu::ComputePipeline>`) the wgpu separable entry point takes;
+# pinned to major 27 to match the rest of the workspace (no other wgpu use here).
+wgpu.workspace = true
 
 [lints]
 workspace = true

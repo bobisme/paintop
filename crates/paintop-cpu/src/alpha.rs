@@ -288,8 +288,42 @@ fn target_postcondition(direction: Direction, outputs: &OutputDescriptors) -> Ve
     }]
 }
 
-/// Shared compute kernel for both directions.
-fn compute(direction: Direction, inputs: &InputValues) -> std::result::Result<OutputValues, Error> {
+/// The compute backend serving an alpha op: the scalar reference oracle or the
+/// autovectorization-friendly `cpu.optimized` kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    /// The scalar reference oracle ([`apply`]).
+    Reference,
+    /// The `cpu.optimized` kernel ([`crate::optimized::kernels`]). It reproduces
+    /// the reference arithmetic exactly (premultiply bit-for-bit; unpremultiply
+    /// within its bounded envelope, sharing the same near-zero-alpha policy).
+    Optimized,
+}
+
+/// Transform the samples with the selected backend; both honour the same
+/// (un)premultiply semantics so the differential harness can validate Optimized
+/// against Reference within the op's tier tolerance.
+fn transform(samples: &[f32], channels: u32, direction: Direction, backend: Backend) -> Vec<f32> {
+    match backend {
+        Backend::Reference => apply(samples, channels, direction),
+        Backend::Optimized => {
+            let stride = channels as usize;
+            match direction {
+                Direction::Premultiply => crate::optimized::kernels::premultiply(samples, stride),
+                Direction::Unpremultiply => {
+                    crate::optimized::kernels::unpremultiply(samples, stride)
+                }
+            }
+        }
+    }
+}
+
+/// Shared compute kernel for both directions and backends.
+fn compute(
+    direction: Direction,
+    backend: Backend,
+    inputs: &InputValues,
+) -> std::result::Result<OutputValues, Error> {
     let image = inputs.get("image").ok_or_else(|| {
         Error::new(
             ErrorClass::Reference,
@@ -309,7 +343,7 @@ fn compute(direction: Direction, inputs: &InputValues) -> std::result::Result<Ou
     };
 
     let out_descriptor = check_and_retarget(descriptor, direction)?;
-    let samples = apply(image.samples(), image.channels(), direction);
+    let samples = transform(image.samples(), image.channels(), direction, backend);
 
     let value = ResourceValue::new(
         ResourceDescriptor::Image(out_descriptor),
@@ -361,7 +395,7 @@ fn manifest_for(
             doc: "The image with its alpha representation flipped (same extent/layout).".to_owned(),
         }],
         params: vec![],
-        implementations: vec![reference_impl()?],
+        implementations: vec![reference_impl()?, optimized_impl()?],
         test,
     })
 }
@@ -369,6 +403,11 @@ fn manifest_for(
 /// The mandatory `cpu.reference@1` oracle implementation id.
 fn reference_impl() -> Result<ImplId> {
     ImplId::new("cpu", "reference", 1)
+}
+
+/// The `cpu.optimized@1` autovectorized backend implementation id.
+fn optimized_impl() -> Result<ImplId> {
+    ImplId::new("cpu", "optimized", 1)
 }
 
 /// The verification declarations shared by both alpha ops: pointwise, single
@@ -385,6 +424,10 @@ fn alpha_test_metadata(rationale: &str) -> TestMetadata {
         VerificationCategory::AnalyticFixtures,
         VerificationCategory::PropertyTests,
         VerificationCategory::Metamorphic,
+        // The op now exposes a cpu.optimized backend, so differential testing
+        // applies: the cross-backend harness validates it against the reference
+        // oracle within tier tolerance.
+        VerificationCategory::Differential,
         VerificationCategory::Goldens,
         VerificationCategory::Fuzzing,
         VerificationCategory::Performance,
@@ -477,7 +520,34 @@ impl OpImplementation for Premultiply {
         inputs: &InputValues,
         _params: &serde_json::Value,
     ) -> std::result::Result<OutputValues, Error> {
-        compute(Direction::Premultiply, inputs)
+        compute(Direction::Premultiply, Backend::Reference, inputs)
+    }
+}
+
+/// The `cpu.optimized@1` backend for `alpha.premultiply@1`.
+///
+/// It applies the same per-channel `C' = C * alpha` as the oracle, computed by the
+/// autovectorization-friendly kernel. `alpha.premultiply` is
+/// [`Exact`](DeterminismTier::Exact), so the optimized result is **bit-identical**
+/// to the reference (the differential harness enforces it).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PremultiplyOptimized;
+
+impl PremultiplyOptimized {
+    /// Construct the optimized premultiply backend.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl OpImplementation for PremultiplyOptimized {
+    fn compute(
+        &self,
+        inputs: &InputValues,
+        _params: &serde_json::Value,
+    ) -> std::result::Result<OutputValues, Error> {
+        compute(Direction::Premultiply, Backend::Optimized, inputs)
     }
 }
 
@@ -555,7 +625,35 @@ impl OpImplementation for Unpremultiply {
         inputs: &InputValues,
         _params: &serde_json::Value,
     ) -> std::result::Result<OutputValues, Error> {
-        compute(Direction::Unpremultiply, inputs)
+        compute(Direction::Unpremultiply, Backend::Reference, inputs)
+    }
+}
+
+/// The `cpu.optimized@1` backend for `alpha.unpremultiply@1`.
+///
+/// It applies the same per-channel divide-with-clamp policy as the oracle, computed
+/// by the autovectorization-friendly kernel. The kernel divides by the guarded
+/// alpha exactly as the reference does and shares the same [`UNPREMULTIPLY_EPSILON`]
+/// near-zero policy, so for every recoverable pixel the result is bit-identical and
+/// the op stays within its [`Bounded`](DeterminismTier::Bounded) envelope.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnpremultiplyOptimized;
+
+impl UnpremultiplyOptimized {
+    /// Construct the optimized unpremultiply backend.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl OpImplementation for UnpremultiplyOptimized {
+    fn compute(
+        &self,
+        inputs: &InputValues,
+        _params: &serde_json::Value,
+    ) -> std::result::Result<OutputValues, Error> {
+        compute(Direction::Unpremultiply, Backend::Optimized, inputs)
     }
 }
 

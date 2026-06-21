@@ -10,8 +10,9 @@ use std::collections::BTreeMap;
 
 use paintop_core::evidence::trace::TraceEvent;
 use paintop_core::executor::{
-    E_OUTPUT_NOT_PRODUCED, ExecError, ImplRegistry, InputValues, OpImplementation, OutputValues,
-    ResourceValue, execute,
+    BackendId, BackendPolicy, E_BACKEND_UNSUPPORTED, E_OUTPUT_NOT_PRODUCED, ExecError,
+    ImplRegistry, InputValues, OpImplementation, OutputValues, ResourceValue, execute,
+    execute_with_policy,
 };
 use paintop_ir::{
     AlphaRepresentation, ChannelLayout, ColorEncoding, ColorRange, ContractRegistry,
@@ -464,4 +465,150 @@ fn a_missing_implementation_fails_for_a_demanded_node() {
         .expect_err("expected error");
     assert!(matches!(err, ExecError::ImplementationNotFound { .. }));
     assert_eq!(err.node(), "src");
+}
+
+// ---- M3: backend selection + dispatch (bn-2b3) ------------------------------
+
+/// An "invert" op exposing two backends: the `cpu.reference` oracle (identity
+/// pass-through) and a `cpu.optimized` kernel that computes the *same logical
+/// result* (the reference is the oracle, so the optimized kernel must agree).
+fn multi_impl_registry() -> OperationRegistry {
+    let mut invert = op("filter.invert@1", &["image"], &["image"]);
+    invert.implementations = vec![
+        "cpu.reference@1".parse().expect("ok"),
+        "cpu.optimized@1".parse().expect("ok"),
+    ];
+    OperationRegistry::from_manifests([op("source.create@1", &[], &["image"]), invert]).expect("ok")
+}
+
+/// The reference and the optimized invert kernels, both registered for the op.
+fn multi_impl_implementations() -> ImplRegistry {
+    let mut r = ImplRegistry::new();
+    r.register(
+        "source.create@1".parse().expect("ok"),
+        Box::new(SourceImpl(linear_premul(EXTENT))),
+    )
+    .expect("ok");
+    r.register("filter.invert@1".parse().expect("ok"), Box::new(InvertImpl))
+        .expect("ok");
+    r.register_backend(
+        "filter.invert@1".parse().expect("ok"),
+        &"cpu.optimized@1".parse().expect("ok"),
+        Box::new(InvertImpl),
+    )
+    .expect("ok");
+    r
+}
+
+#[test]
+fn default_policy_dispatches_the_reference_oracle() {
+    let plan = three_node_plan();
+    let reg = multi_impl_registry();
+    let graph = resolve_plan(&plan, &reg).expect("ok");
+    let exec = execute(
+        &plan,
+        &graph,
+        &reg,
+        &multi_impl_implementations(),
+        &no_inputs(),
+    )
+    .expect("ok");
+
+    // Even though an optimized backend exists, the default policy stays on the
+    // oracle so the plan is byte-identical to the pre-M3 path.
+    for e in exec.trace() {
+        if let TraceEvent::DispatchCompleted(c) = e {
+            assert_eq!(c.implementation, "cpu.reference@1");
+        }
+    }
+}
+
+#[test]
+fn preferring_policy_dispatches_optimized_and_matches_reference() {
+    let plan = three_node_plan();
+    let reg = multi_impl_registry();
+    let graph = resolve_plan(&plan, &reg).expect("ok");
+
+    // Reference run (the oracle).
+    let reference = execute(
+        &plan,
+        &graph,
+        &reg,
+        &multi_impl_implementations(),
+        &no_inputs(),
+    )
+    .expect("ok");
+
+    // Optimized run under a preferring policy.
+    let policy = BackendPolicy::prefer([BackendId::new("cpu", "optimized")]);
+    let optimized = execute_with_policy(
+        &plan,
+        &graph,
+        &reg,
+        &multi_impl_implementations(),
+        &no_inputs(),
+        &policy,
+    )
+    .expect("ok");
+
+    // The `used` node (filter.invert) dispatched on the optimized backend; the
+    // source (only a reference impl) fell back to the oracle — both recorded.
+    let used_impl = optimized
+        .trace()
+        .iter()
+        .find_map(|e| match e {
+            TraceEvent::ImplementationSelected(s) if s.node == "used" => {
+                Some(s.implementation.as_str())
+            }
+            _ => None,
+        })
+        .expect("used node selection recorded");
+    assert_eq!(used_impl, "cpu.optimized@1");
+
+    let src_impl = optimized
+        .trace()
+        .iter()
+        .find_map(|e| match e {
+            TraceEvent::ImplementationSelected(s) if s.node == "src" => {
+                Some(s.implementation.as_str())
+            }
+            _ => None,
+        })
+        .expect("src node selection recorded");
+    assert_eq!(src_impl, "cpu.reference@1", "src falls back to the oracle");
+
+    // The optimized result is the same logical value as the oracle.
+    assert_eq!(
+        optimized.output("used", "image").expect("ok").samples(),
+        reference.output("used", "image").expect("ok").samples(),
+    );
+}
+
+#[test]
+fn required_unavailable_backend_is_an_explicit_dispatch_error() {
+    let plan = three_node_plan();
+    let reg = multi_impl_registry();
+    let graph = resolve_plan(&plan, &reg).expect("ok");
+
+    // Require wgpu, which no op here exposes: an explicit error, never a silent
+    // wrong answer or a quiet fallback.
+    let policy = BackendPolicy::require(BackendId::new("wgpu", "separable"));
+    let err = execute_with_policy(
+        &plan,
+        &graph,
+        &reg,
+        &multi_impl_implementations(),
+        &no_inputs(),
+        &policy,
+    )
+    .expect_err("required wgpu must fail");
+    // The selection error is carried as the dispatch failure's source, so the
+    // unsupported-backend code is preserved end to end.
+    match err {
+        ExecError::Dispatch { source, .. } => {
+            assert_eq!(source.code, E_BACKEND_UNSUPPORTED);
+            assert_eq!(source.class, ErrorClass::Policy);
+        }
+        other => panic!("expected a dispatch failure, got {other:?}"),
+    }
 }

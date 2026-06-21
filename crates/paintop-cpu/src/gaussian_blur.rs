@@ -39,9 +39,9 @@
 //! isotropy, the σ-semigroup, the impulse-variance match, and the σ→0 identity),
 //! not a perceptual metric.
 
-use paintop_core::executor::{InputValues, OpImplementation, OutputValues};
+use paintop_core::executor::{InputValues, OpImplementation, OutputValues, ResourceValue};
 use paintop_ir::{
-    AssertionResult, Descriptors, DeterminismTier, Error, ErrorClass, ErrorContext, ImplId,
+    AssertionResult, Descriptors, DeterminismTier, Error, ErrorClass, ErrorContext, Extent, ImplId,
     InputRegions, InputSpec, OpContract, OperationManifest, OutputDescriptors, OutputRegions,
     OutputSpec, ParamSpec, ParamType, ParamUnit, ResourceDescriptor, ResourceKind, Result,
     RoiCategory, RoiPolicy, TestMetadata,
@@ -275,7 +275,7 @@ impl GaussianBlur {
                     doc: "Upper bound on sigma; a larger request is rejected.".to_owned(),
                 },
             ],
-            implementations: vec![reference_impl()?],
+            implementations: vec![reference_impl()?, optimized_impl()?],
             test: blur_test_metadata(),
         })
     }
@@ -398,18 +398,280 @@ impl OpImplementation for GaussianBlur {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The `cpu.optimized` separable Gaussian (bn-u6g, `plan.md` §12.2).
+// ---------------------------------------------------------------------------
+
+/// The mandatory `cpu.optimized@1` backend implementation id.
+fn optimized_impl() -> Result<ImplId> {
+    ImplId::new("cpu", "optimized", 1)
+}
+
+/// The per-axis boundary index policy, mirroring the direct convolution oracle's
+/// [`source_index`](crate::convolve) exactly so the separable passes reproduce the
+/// reference's boundary handling within the bounded tolerance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlurBoundary {
+    /// A fixed constant for any out-of-bounds tap (the `constant`/`transparent`
+    /// modes; the Gaussian always uses an all-zero constant).
+    Constant,
+    /// Replicate the nearest edge sample.
+    Clamp,
+    /// Whole-sample mirror across the edge (edge not repeated).
+    Mirror,
+    /// Periodic (toroidal) tiling.
+    Wrap,
+}
+
+impl BlurBoundary {
+    /// Map the boundary `mode` token onto the per-axis policy. The Gaussian's
+    /// `constant` and `transparent` modes both blur against an all-zero border, so
+    /// they share the [`Constant`](Self::Constant) arm.
+    fn from_mode(mode: &str) -> Self {
+        match mode {
+            "mirror" => Self::Mirror,
+            "wrap" => Self::Wrap,
+            "constant" | "transparent" => Self::Constant,
+            // `clamp` is the documented default for every other (valid) token.
+            _ => Self::Clamp,
+        }
+    }
+
+    /// Resolve an out-of-or-in-bounds 1-D `coord` to a source index in `[0, n)`,
+    /// or `None` when the constant border applies. Identical in behaviour to the
+    /// oracle's `source_index` per axis (`n >= 1`).
+    fn source_index(self, coord: i64, n: i64) -> Option<i64> {
+        if coord >= 0 && coord < n {
+            return Some(coord);
+        }
+        match self {
+            Self::Constant => None,
+            Self::Clamp => Some(coord.clamp(0, n - 1)),
+            Self::Wrap => Some(coord.rem_euclid(n)),
+            Self::Mirror => {
+                if n == 1 {
+                    Some(0)
+                } else {
+                    let period = 2 * (n - 1);
+                    let m = coord.rem_euclid(period);
+                    Some(if m < n { m } else { period - m })
+                }
+            }
+        }
+    }
+}
+
+/// The normalized 1-D Gaussian taps for a `sigma`, indexed `[-r, r]` → `[0, 2r]`,
+/// and the radius `r = ceil(3σ)` (`0` under the σ→0 cutoff).
+///
+/// The taps are `g(d) = exp(-d² / 2σ²)` normalized so `Σ g = 1`. Because the
+/// reference's 2-D kernel sum over the `(2r+1)²` square **factorizes** —
+/// `ΣΣ exp(-(dx²+dy²)/2σ²) = (Σ exp(-d²/2σ²))²` — the separable product
+/// `g(dx)·g(dy)` is *algebraically the same kernel* the reference normalizes, so
+/// the two-pass result matches the direct convolution to within f64 reassociation
+/// (the bounded tier), not a different blur.
+fn gaussian_taps_1d(sigma: f64) -> (Vec<f64>, u32) {
+    let r = kernel_radius(sigma);
+    if r == 0 {
+        return (vec![1.0], 0);
+    }
+    let ri = i64::from(r);
+    let two_sigma_sq = 2.0 * sigma * sigma;
+    let mut taps = Vec::with_capacity((2 * r + 1) as usize);
+    let mut sum = 0.0_f64;
+    for d in -ri..=ri {
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "d is a small kernel offset bounded by 3*sigma_max"
+        )]
+        let w = (-(d * d) as f64 / two_sigma_sq).exp();
+        sum += w;
+        taps.push(w);
+    }
+    for w in &mut taps {
+        *w /= sum;
+    }
+    (taps, r)
+}
+
+/// Convolve one axis of a `channels`-interleaved `f32` plane with the 1-D Gaussian
+/// `taps` (radius `r`, hot tap at index `r`), under the per-axis boundary policy.
+///
+/// `horizontal` selects the axis: when true the kernel slides along x (the inner,
+/// stride-`channels` direction); when false along y (stride `width*channels`). Each
+/// output sample is an f64 accumulation of `taps[k] * src(boundary(coord))`, rounded
+/// once to f32 — the same fixed-order-per-axis accumulation the oracle performs over
+/// the full 2-D tap set, just factored into two passes.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a flat per-axis separable pass over an interleaved plane; the geometry \
+              (extent, channels, taps, radius, boundary, axis) is irreducible"
+)]
+fn blur_axis(
+    src: &[f32],
+    width: usize,
+    height: usize,
+    channels: usize,
+    taps: &[f64],
+    r: u32,
+    boundary: BlurBoundary,
+    horizontal: bool,
+) -> Vec<f32> {
+    let mut out = vec![0.0_f32; src.len()];
+    let ri = i64::from(r);
+    // The along-axis length, as the i64 the boundary index map operates in. Image
+    // extents are u32-bounded, so the conversion is exact.
+    let axis_len = i64::from(u32::try_from(if horizontal { width } else { height }).unwrap_or(0));
+    for y in 0..height {
+        for x in 0..width {
+            let base = (y * width + x) * channels;
+            // The hot pixel's along-axis position (exact: bounded by the extent).
+            let pos = i64::from(u32::try_from(if horizontal { x } else { y }).unwrap_or(0));
+            for ch in 0..channels {
+                let mut acc = 0.0_f64;
+                for (k, &w) in taps.iter().enumerate() {
+                    if w == 0.0 {
+                        continue;
+                    }
+                    // Tap k lands at offset (k - r) from the hot pixel.
+                    let coord = pos + (i64::from(u32::try_from(k).unwrap_or(0)) - ri);
+                    let sample = boundary.source_index(coord, axis_len).map_or(
+                        // The constant border: the Gaussian blurs against zero.
+                        0.0,
+                        |idx| {
+                            // `source_index` returns an index in `[0, axis_len)`.
+                            let idx = usize::try_from(idx).unwrap_or(0);
+                            let src_base = if horizontal {
+                                (y * width + idx) * channels + ch
+                            } else {
+                                (idx * width + x) * channels + ch
+                            };
+                            f64::from(src[src_base])
+                        },
+                    );
+                    acc = w.mul_add(sample, acc);
+                }
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "accumulate in f64 then store the op's f32 sample type"
+                )]
+                {
+                    out[base + ch] = acc as f32;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The separable two-pass Gaussian over a `channels`-interleaved plane: a
+/// horizontal pass followed by a vertical pass with the same 1-D taps.
+///
+/// The two passes commute with the boundary index map (each axis applies it
+/// independently), so `V(H(src))` reproduces the oracle's single 2-D sum
+/// `(V∘H)(src)` to within f64 reassociation. Cost is `O(r)` per pixel per axis
+/// (`2r+1` taps each) versus the reference's `O(r²)` (`(2r+1)²` taps), the win that
+/// grows with sigma.
+fn separable_blur(
+    samples: &[f32],
+    extent: Extent,
+    channels: u32,
+    sigma: f64,
+    boundary: BlurBoundary,
+) -> Vec<f32> {
+    let width = extent.width as usize;
+    let height = extent.height as usize;
+    let ch = channels as usize;
+    if width == 0 || height == 0 || ch == 0 {
+        return Vec::new();
+    }
+    let (taps, r) = gaussian_taps_1d(sigma);
+    if r == 0 {
+        // The σ→0 identity: a single unit tap is a pass-through.
+        return samples.to_vec();
+    }
+    let horizontal = blur_axis(samples, width, height, ch, &taps, r, boundary, true);
+    blur_axis(&horizontal, width, height, ch, &taps, r, boundary, false)
+}
+
+/// The `cpu.optimized` separable Gaussian backend of `filter.gaussian_blur@1`
+/// (bn-u6g; `plan.md` §12.2).
+///
+/// Computes the identical normalized Gaussian as the
+/// [`GaussianBlur`] reference, but as two `O(r)` separable passes instead of one
+/// `O(r²)` direct 2-D convolution, validated against the reference oracle within
+/// the op's bounded tolerance by the cross-backend differential harness. Faster for
+/// large sigma; deterministic and bit-identical on reruns (a fixed-order f64
+/// accumulation per axis).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GaussianBlurOptimized;
+
+impl GaussianBlurOptimized {
+    /// Construct the optimized separable Gaussian backend.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl OpImplementation for GaussianBlurOptimized {
+    fn compute(
+        &self,
+        inputs: &InputValues,
+        params: &serde_json::Value,
+    ) -> std::result::Result<OutputValues, Error> {
+        let input = inputs.get("input").ok_or_else(|| {
+            Error::new(
+                ErrorClass::Reference,
+                E_BLUR_INPUT,
+                "filter.gaussian_blur requires an `input` value".to_owned(),
+            )
+        })?;
+        let channels = input.channels();
+        // Reuse the reference's param validation (sigma bounds, mode vocabulary) so
+        // the optimized backend rejects exactly what the oracle rejects, then build
+        // the separable plan from the validated sigma/mode.
+        let _ = build_convolve_params(params, channels)?;
+        let sigma = sigma_param(params)?;
+        let mode = mode_param(params);
+        let boundary = BlurBoundary::from_mode(&mode);
+
+        let descriptor = *input.descriptor();
+        // The Gaussian preserves the extent (no `valid` mode), so the output frame
+        // matches the input.
+        let extent = input.extent();
+        let samples = separable_blur(input.samples(), extent, channels, sigma, boundary);
+
+        let value = ResourceValue::new(descriptor, channels, samples).map_err(|actual| {
+            Error::new(
+                ErrorClass::Execution,
+                E_BLUR_INPUT,
+                format!(
+                    "filter.gaussian_blur (optimized) produced a sample buffer of unexpected \
+                     length {actual}"
+                ),
+            )
+        })?;
+        let mut out = OutputValues::new();
+        out.insert("output".to_owned(), value);
+        Ok(out)
+    }
+}
+
 /// The mandatory `cpu.reference@1` oracle implementation id.
 fn reference_impl() -> Result<ImplId> {
     ImplId::new("cpu", "reference", 1)
 }
 
-/// Verification declarations for `filter.gaussian_blur@1`: a bounded,
-/// single-reference neighbourhood op. Differential does not apply (one
-/// implementation). Perceptual is not applicable: correctness is the analytic
-/// Gaussian property set (unit-sum positive kernel, constant preservation, 90°
-/// isotropy, the σ-semigroup, the blurred-impulse variance match, and the σ→0
-/// identity), plus a differential check against `filter.convolve` with the same
-/// kernel — not a perceptual-quality metric.
+/// Verification declarations for `filter.gaussian_blur@1`: a bounded
+/// neighbourhood op carrying its `cpu.reference` direct-convolution oracle plus a
+/// `cpu.optimized` separable backend (M3 bn-u6g). Differential **applies** and is
+/// covered: the cross-backend harness validates the separable result against the
+/// oracle within the op's bounded tolerance. Perceptual is not applicable:
+/// correctness is the analytic Gaussian property set (unit-sum positive kernel,
+/// constant preservation, 90° isotropy, the σ-semigroup, the blurred-impulse
+/// variance match, and the σ→0 identity), plus the differential checks against
+/// `filter.convolve` and the separable backend — not a perceptual-quality metric.
 fn blur_test_metadata() -> TestMetadata {
     use paintop_ir::{CategoryStatus, VerificationCategory, VerificationDeclarations};
     let mut decls = VerificationDeclarations::new();
@@ -419,6 +681,7 @@ fn blur_test_metadata() -> TestMetadata {
         VerificationCategory::AnalyticFixtures,
         VerificationCategory::PropertyTests,
         VerificationCategory::Metamorphic,
+        VerificationCategory::Differential,
         VerificationCategory::Goldens,
         VerificationCategory::Fuzzing,
         VerificationCategory::Performance,

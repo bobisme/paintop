@@ -227,7 +227,7 @@ impl Over {
                 doc: "The composited image (the dst descriptor; same extent/layout).".to_owned(),
             }],
             params: vec![],
-            implementations: vec![reference_impl()?],
+            implementations: vec![reference_impl()?, optimized_impl()?],
             test: over_test_metadata(),
         })
     }
@@ -310,41 +310,94 @@ impl OpContract for Over {
     }
 }
 
+/// The compute backend serving `composite.over`: the scalar reference oracle or
+/// the autovectorization-friendly `cpu.optimized` kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    /// The scalar reference oracle ([`over`]).
+    Reference,
+    /// The `cpu.optimized` source-over kernel ([`crate::optimized::kernels`]).
+    Optimized,
+}
+
+/// Shared compute for both backends: validate the two ports, then composite.
+fn compute_backend(
+    backend: Backend,
+    inputs: &InputValues,
+) -> std::result::Result<OutputValues, Error> {
+    let src = input_value(inputs, "src")?;
+    let dst = input_value(inputs, "dst")?;
+
+    let ResourceDescriptor::Image(src_descriptor) = src.descriptor() else {
+        return Err(input_type_error("src"));
+    };
+    let ResourceDescriptor::Image(dst_descriptor) = dst.descriptor() else {
+        return Err(input_type_error("dst"));
+    };
+
+    let out_descriptor = check_and_retarget(src_descriptor, dst_descriptor)?;
+    let samples = match backend {
+        Backend::Reference => over(src.samples(), dst.samples(), dst.channels()),
+        Backend::Optimized => crate::optimized::kernels::composite_over(
+            src.samples(),
+            dst.samples(),
+            dst.channels() as usize,
+        ),
+    };
+
+    let value = ResourceValue::new(
+        ResourceDescriptor::Image(out_descriptor),
+        dst.channels(),
+        samples,
+    )
+    .map_err(|actual| {
+        Error::new(
+            ErrorClass::Execution,
+            E_OVER_BUFFER,
+            format!("composite.over produced a sample buffer of unexpected length {actual}"),
+        )
+    })?;
+
+    let mut out = OutputValues::new();
+    out.insert("image".to_owned(), value);
+    Ok(out)
+}
+
 impl OpImplementation for Over {
     fn compute(
         &self,
         inputs: &InputValues,
         _params: &serde_json::Value,
     ) -> std::result::Result<OutputValues, Error> {
-        let src = input_value(inputs, "src")?;
-        let dst = input_value(inputs, "dst")?;
+        compute_backend(Backend::Reference, inputs)
+    }
+}
 
-        let ResourceDescriptor::Image(src_descriptor) = src.descriptor() else {
-            return Err(input_type_error("src"));
-        };
-        let ResourceDescriptor::Image(dst_descriptor) = dst.descriptor() else {
-            return Err(input_type_error("dst"));
-        };
+/// The `cpu.optimized@1` backend for `composite.over@1`.
+///
+/// It computes the same per-channel premultiplied source-over
+/// `C_o = C_s + C_d * (1 - alpha_s)` as the oracle via the autovectorization-
+/// friendly kernel, using the identical fused multiply-add.
+/// `composite.over` is [`Exact`](DeterminismTier::Exact), so the optimized result
+/// is **bit-identical** to the reference (the differential harness enforces it).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OverOptimized;
 
-        let out_descriptor = check_and_retarget(src_descriptor, dst_descriptor)?;
-        let samples = over(src.samples(), dst.samples(), dst.channels());
+impl OverOptimized {
+    /// Construct the optimized source-over backend.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
-        let value = ResourceValue::new(
-            ResourceDescriptor::Image(out_descriptor),
-            dst.channels(),
-            samples,
-        )
-        .map_err(|actual| {
-            Error::new(
-                ErrorClass::Execution,
-                E_OVER_BUFFER,
-                format!("composite.over produced a sample buffer of unexpected length {actual}"),
-            )
-        })?;
-
-        let mut out = OutputValues::new();
-        out.insert("image".to_owned(), value);
-        Ok(out)
+impl OpImplementation for OverOptimized {
+    fn compute(
+        &self,
+        inputs: &InputValues,
+        _params: &serde_json::Value,
+    ) -> std::result::Result<OutputValues, Error> {
+        compute_backend(Backend::Optimized, inputs)
     }
 }
 
@@ -376,6 +429,11 @@ fn reference_impl() -> Result<ImplId> {
     ImplId::new("cpu", "reference", 1)
 }
 
+/// The `cpu.optimized@1` autovectorized backend implementation id.
+fn optimized_impl() -> Result<ImplId> {
+    ImplId::new("cpu", "optimized", 1)
+}
+
 /// The verification declarations for `composite.over@1` (`AGENT_VERIFICATION`
 /// §3.2). The op is an exact, single-reference per-channel premultiplied blend
 /// verified by the §3.2 property set: transparent-source identity, opaque-source
@@ -392,6 +450,9 @@ fn over_test_metadata() -> TestMetadata {
         VerificationCategory::AnalyticFixtures,
         VerificationCategory::PropertyTests,
         VerificationCategory::Metamorphic,
+        // The op now exposes a cpu.optimized backend, so differential testing
+        // applies: the cross-backend harness validates it against the oracle.
+        VerificationCategory::Differential,
         VerificationCategory::Goldens,
         VerificationCategory::Fuzzing,
         VerificationCategory::Performance,

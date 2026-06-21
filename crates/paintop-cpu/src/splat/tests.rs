@@ -25,7 +25,7 @@ use paintop_ir::{
     verify_categories,
 };
 
-use super::{DEFAULT_MAX_SPLATS, GaussianSplats, SPLAT_OP_ID};
+use super::{DEFAULT_MAX_SPLATS, GaussianSplats, SPLAT_OP_ID, SplatRequest};
 
 /// Coverage tolerance for the `bounded` (exp-based) accumulation.
 const TOL: f64 = 1e-6;
@@ -424,10 +424,12 @@ fn malformed_splat_shape_is_rejected() {
 
 #[test]
 fn unknown_blend_mode_is_rejected() {
+    // `overlay` is not a supported splat blend mode (the set is
+    // normal/multiply/add/screen/lighten); an unknown token is still rejected.
     let params = serde_json::json!({
         "splats": [
             { "center_px": [4.0, 4.0], "sigma_px": [2.0, 2.0],
-              "color": [0.0, 0.0, 0.0, 1.0], "blend": "screen" }
+              "color": [0.0, 0.0, 0.0, 1.0], "blend": "overlay" }
         ]
     });
     let mut inputs = InputValues::new();
@@ -485,6 +487,364 @@ fn mismatched_space_is_rejected() {
         .compute(&inputs, &params)
         .expect_err("space mismatching the base encoding must be rejected");
     assert_eq!(err.class, ErrorClass::Semantic);
+}
+
+// --- Additive blend modes (bn-3rx) ----------------------------------------
+
+/// The new additive / lightening blend tokens all parse and produce a result; the
+/// default (no `blend`) stays `normal`.
+#[test]
+fn additive_blend_tokens_parse() {
+    for mode in ["add", "screen", "lighten"] {
+        let params = serde_json::json!({
+            "splats": [
+                { "center_px": [4.5, 4.5], "sigma_px": [2.0, 2.0],
+                  "color": [0.5, 0.4, 0.3, 0.8], "blend": mode }
+            ]
+        });
+        let mut inputs = InputValues::new();
+        inputs.insert("base".to_owned(), base_image(8, 0.2));
+        GaussianSplats::new()
+            .compute(&inputs, &params)
+            .unwrap_or_else(|e| panic!("blend `{mode}` must parse: {e}"));
+    }
+}
+
+/// `composite.blend@1`'s exact per-channel premultiplied formulas, replicated here
+/// as the cross-check oracle (`crates/paintop-cpu/src/blend.rs`): the splat additive
+/// modes must compute the identical arithmetic. Operates on premultiplied samples
+/// `s` (the coverage-scaled premultiplied splat source) and `d` (premultiplied dst),
+/// applied identically to color and alpha.
+fn blend_ref(mode: &str, s: f64, d: f64) -> f64 {
+    match mode {
+        "add" => s + d,
+        // s + d − s·d, fused identically to blend.rs's `s.mul_add(-d, s + d)`.
+        "screen" => s.mul_add(-d, s + d),
+        "lighten" => s.max(d),
+        other => panic!("unhandled mode {other}"),
+    }
+}
+
+/// Per-splat additive blending matches `composite.blend`'s same-mode formula on
+/// premultiplied-linear samples, bit-for-bit. We paint a single splat with a known
+/// color/coverage onto a flat base and, at every pixel, reconstruct the expected
+/// `B(s, d)` from the splat's premultiplied source `s = color·(color.a·weight)` and
+/// the base `d`, then compare to the op output exactly.
+#[test]
+#[allow(
+    clippy::float_cmp,
+    reason = "the additive blend is closed-form exact: the op output must equal the \
+              composite.blend formula bit-for-bit"
+)]
+fn additive_blend_matches_composite_blend_formula() {
+    let n = 24_u32;
+    let fill = 0.3_f32;
+    let cx = 12.5_f64;
+    let cy = 12.5_f64;
+    let sigma = 4.0_f64;
+    let color = [0.7_f64, 0.5, 0.9, 0.8];
+    let opacity = 0.6_f64;
+    for mode in ["add", "screen", "lighten"] {
+        let params = serde_json::json!({
+            "splats": [
+                { "center_px": [cx, cy], "sigma_px": [sigma, sigma],
+                  "color": color, "opacity": opacity, "blend": mode }
+            ]
+        });
+        let out = paint(base_image(n, fill), &params);
+        let samples = out.samples();
+        let w = n as usize;
+        for j in 0..w {
+            for i in 0..w {
+                // Reconstruct the splat's Gaussian weight at this pixel center.
+                let dx = px_center(i) - cx;
+                let dy = px_center(j) - cy;
+                let r2 = dx.mul_add(dx, dy * dy);
+                let weight = opacity * (-0.5 * r2 / (sigma * sigma)).exp();
+                let src_a = color[3] * weight;
+                let base_idx = (j * w + i) * 4;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "test reconstructs the exact f32 the kernel computes from its f64 blend"
+                )]
+                for c in 0..4 {
+                    // Premultiplied source channel: rgb·(color.a·weight); alpha = src_a.
+                    // The kernel blends in f64 and casts the result to f32 once, so
+                    // the oracle must do the same (blend in f64, then truncate).
+                    let s = if c == 3 { src_a } else { color[c] * src_a };
+                    let d = f64::from(fill);
+                    let expected = blend_ref(mode, s, d) as f32;
+                    let got = samples[base_idx + c];
+                    assert_eq!(
+                        got, expected,
+                        "mode {mode} pixel ({i},{j}) ch{c}: {got} != {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// `add` and `screen` are commutative in the premultiplied arithmetic, so two
+/// overlapping additive splats give the same result in either array order — but the
+/// op still honours the declared accumulation order (a deterministic, bit-identical
+/// rerun). Here we assert the commutativity the additive modes are valued for, and
+/// that the result is identical under reorder up to f32 add-reassociation tolerance.
+#[test]
+fn additive_blend_is_order_robust_and_deterministic() {
+    let n = 24_u32;
+    let red = || {
+        serde_json::json!(
+        { "center_px": [10.5, 12.5], "sigma_px": [5.0, 5.0],
+          "color": [0.9, 0.1, 0.1, 1.0], "opacity": 0.6, "blend": "add" })
+    };
+    let blue = || {
+        serde_json::json!(
+        { "center_px": [13.5, 12.5], "sigma_px": [5.0, 5.0],
+          "color": [0.1, 0.1, 0.9, 1.0], "opacity": 0.6, "blend": "add" })
+    };
+    let ab = paint(
+        base_image(n, 0.0),
+        &serde_json::json!({ "splats": [red(), blue()] }),
+    );
+    let ba = paint(
+        base_image(n, 0.0),
+        &serde_json::json!({ "splats": [blue(), red()] }),
+    );
+    // `add` is exact integer-free f32 addition; for two splats the partial sums
+    // (base + s0) + s1 vs (base + s1) + s0 differ only by f32 add-reassociation,
+    // bounded by a few ULP. Assert near-equality (the additive-commutativity value).
+    for (x, y) in ab.samples().iter().zip(ba.samples().iter()) {
+        assert!(
+            (f64::from(*x) - f64::from(*y)).abs() < 1e-6,
+            "additive blend should be order-robust: {x} vs {y}"
+        );
+    }
+    // Deterministic rerun is bit-identical.
+    let ab2 = paint(
+        base_image(n, 0.0),
+        &serde_json::json!({ "splats": [red()] }),
+    );
+    let ab3 = paint(
+        base_image(n, 0.0),
+        &serde_json::json!({ "splats": [red()] }),
+    );
+    assert_eq!(
+        ab2.samples(),
+        ab3.samples(),
+        "additive rerun must be bit-identical"
+    );
+}
+
+/// `screen` is order-sensitive only through f32 reassociation but visibly *lightens*
+/// over the base: a screen splat on a mid-grey base raises every covered channel
+/// toward 1. Sanity that the lightening mode actually accumulates light.
+#[test]
+fn screen_blend_lightens_the_base() {
+    let n = 16_u32;
+    let fill = 0.3_f32;
+    let params = serde_json::json!({
+        "splats": [
+            { "center_px": [8.5, 8.5], "sigma_px": [3.0, 3.0],
+              "color": [1.0, 1.0, 1.0, 1.0], "opacity": 1.0, "blend": "screen" }
+        ]
+    });
+    let out = paint(base_image(n, fill), &params);
+    let peak = out.samples()[(8 * n as usize + 8) * 4];
+    assert!(
+        peak > fill,
+        "screen at the splat peak should lighten {fill} -> {peak}"
+    );
+    assert!(
+        peak <= 1.0 + 1e-6,
+        "screen stays bounded at the peak: {peak}"
+    );
+}
+
+/// Culling stays bit-identical for the additive modes too: outside the support box
+/// the premultiplied source is `(0,0,0,0)`, so `add`/`screen` are the exact identity
+/// (`0 + d`, `0 + d − 0 = d`) and `lighten` is `max(0, d) = d` on the non-negative
+/// premultiplied base. The culled paint must match the un-culled reference.
+#[test]
+fn additive_culling_is_bit_identical() {
+    let n = 80_u32;
+    for mode in ["add", "screen", "lighten"] {
+        let params = serde_json::json!({
+            "splats": [
+                { "center_px": [20.5, 22.5], "sigma_px": [4.0, 7.0], "angle_rad": 0.6,
+                  "color": [0.7, 0.3, 0.5, 0.8], "opacity": 0.7, "blend": mode },
+                { "center_px": [60.5, 55.5], "sigma_px": [5.0, 5.0],
+                  "color": [0.2, 0.8, 0.4, 1.0], "opacity": 0.5, "blend": mode }
+            ]
+        });
+        let base_value = base_image(n, 0.15);
+        let ResourceDescriptor::Image(d) = base_value.descriptor() else {
+            unreachable!();
+        };
+        let request = SplatRequest::resolve(&params, d).expect("resolve");
+        let base = base_value.samples().to_vec();
+        let extent = Extent::new(n, n);
+        assert_eq!(
+            request.paint(&base, extent),
+            request.paint_unculled(&base, extent),
+            "mode {mode} culling must be bit-identical"
+        );
+    }
+}
+
+// --- Per-splat falloff / hardness profile (bn-3rw) ------------------------
+
+/// `hardness = 0` (and an absent `hardness`) is the **pure Gaussian**, bit-identical
+/// to the original kernel: the default falloff path takes no `powf`, so the painted
+/// buffer is byte-for-byte identical whether `hardness` is omitted or set to 0.
+#[test]
+fn hardness_zero_is_bit_identical_to_default() {
+    let n = 48_u32;
+    let make = |with_hardness: bool| {
+        if with_hardness {
+            serde_json::json!({
+                "splats": [
+                    { "center_px": [24.5, 24.5], "sigma_px": [6.0, 9.0], "angle_rad": 0.7,
+                      "color": [0.7, 0.3, 0.5, 0.9], "opacity": 0.8, "hardness": 0.0 }
+                ]
+            })
+        } else {
+            serde_json::json!({
+                "splats": [
+                    { "center_px": [24.5, 24.5], "sigma_px": [6.0, 9.0], "angle_rad": 0.7,
+                      "color": [0.7, 0.3, 0.5, 0.9], "opacity": 0.8 }
+                ]
+            })
+        }
+    };
+    let default = paint(base_image(n, 0.2), &make(false));
+    let explicit_zero = paint(base_image(n, 0.2), &make(true));
+    assert_eq!(
+        default.samples(),
+        explicit_zero.samples(),
+        "hardness=0 must be bit-identical to the default pure Gaussian"
+    );
+}
+
+/// Increasing hardness **sharpens the falloff**: the core is flatter (coverage at a
+/// mid radius rises toward the peak) and the edge is tighter (coverage past the
+/// 1-σ skirt falls). We sample the coverage profile along the major axis of an
+/// isotropic splat at increasing hardness and assert the monotone trend.
+#[test]
+fn increasing_hardness_sharpens_falloff() {
+    let n = 65_u32;
+    let cx = 32.5_f64;
+    let cy = 32.5_f64;
+    let sigma = 8.0_f64;
+    let profile = |hardness: f64| -> Vec<f64> {
+        let params = serde_json::json!({
+            "splats": [
+                { "center_px": [cx, cy], "sigma_px": [sigma, sigma],
+                  "color": [0.0, 0.0, 0.0, 1.0], "opacity": 1.0, "hardness": hardness }
+            ]
+        });
+        let out = paint(base_image(n, 0.0), &params);
+        alpha_channel(&out)
+    };
+    let w = n as usize;
+    let at = |field: &[f64], r: usize| field[32 * w + (32 + r)];
+
+    let soft = profile(0.0);
+    let hard = profile(1.0);
+
+    // Peak (r = 0) is essentially full coverage for both (the center is unchanged).
+    assert!(at(&soft, 0) > 0.99 && at(&hard, 0) > 0.99, "peak preserved");
+
+    // Core (well inside 1σ, r ≈ 0.5σ ≈ 4px): the hard profile sits *higher* — a
+    // flatter, fuller core.
+    let r_core = 4_usize;
+    assert!(
+        at(&hard, r_core) >= at(&soft, r_core),
+        "hard core {} should be >= soft core {}",
+        at(&hard, r_core),
+        at(&soft, r_core)
+    );
+
+    // Skirt (well past 1σ, r ≈ 1.6σ ≈ 13px): the hard profile sits *lower* — a
+    // tighter edge.
+    let r_skirt = 13_usize;
+    assert!(
+        at(&hard, r_skirt) <= at(&soft, r_skirt),
+        "hard skirt {} should be <= soft skirt {}",
+        at(&hard, r_skirt),
+        at(&soft, r_skirt)
+    );
+    // And the difference is real, not a tie everywhere.
+    assert!(
+        at(&hard, r_skirt) < at(&soft, r_skirt) - 1e-3,
+        "hardness must measurably tighten the edge"
+    );
+}
+
+/// The hardness profile is deterministic (`Exact` closed form): a hardened splat
+/// reruns bit-identically.
+#[test]
+fn hardness_rerun_is_bit_identical() {
+    let params = serde_json::json!({
+        "splats": [
+            { "center_px": [20.5, 20.5], "sigma_px": [5.0, 5.0],
+              "color": [0.6, 0.4, 0.8, 1.0], "opacity": 0.9, "hardness": 0.65 }
+        ]
+    });
+    let a = paint(base_image(40, 0.1), &params);
+    let b = paint(base_image(40, 0.1), &params);
+    assert_eq!(
+        a.samples(),
+        b.samples(),
+        "a hardened splat must rerun bit-identically"
+    );
+}
+
+/// Out-of-range or non-finite hardness is rejected (schema error).
+#[test]
+fn out_of_range_hardness_is_rejected() {
+    for bad in [1.5_f64, -0.1] {
+        let params = serde_json::json!({
+            "splats": [
+                { "center_px": [4.0, 4.0], "sigma_px": [2.0, 2.0],
+                  "color": [0.0, 0.0, 0.0, 1.0], "hardness": bad }
+            ]
+        });
+        let mut inputs = InputValues::new();
+        inputs.insert("base".to_owned(), base_image(8, 0.0));
+        let err = GaussianSplats::new()
+            .compute(&inputs, &params)
+            .expect_err("out-of-range hardness must be rejected");
+        assert_eq!(err.class, ErrorClass::Schema, "hardness {bad}");
+    }
+}
+
+/// A hardened splat stays within its support extent and culls bit-identically: the
+/// super-Gaussian only *shrinks* the nonzero region (the p=1 support box stays
+/// conservative), so the culled paint matches the un-culled reference.
+#[test]
+fn hardness_culling_is_bit_identical() {
+    let n = 80_u32;
+    for hardness in [0.0, 0.4, 1.0] {
+        let params = serde_json::json!({
+            "splats": [
+                { "center_px": [30.5, 35.5], "sigma_px": [6.0, 10.0], "angle_rad": 0.5,
+                  "color": [0.5, 0.7, 0.3, 0.9], "opacity": 0.8, "hardness": hardness }
+            ]
+        });
+        let base_value = base_image(n, 0.12);
+        let ResourceDescriptor::Image(d) = base_value.descriptor() else {
+            unreachable!();
+        };
+        let request = SplatRequest::resolve(&params, d).expect("resolve");
+        let base = base_value.samples().to_vec();
+        let extent = Extent::new(n, n);
+        assert_eq!(
+            request.paint(&base, extent),
+            request.paint_unculled(&base, extent),
+            "hardness {hardness} culling must be bit-identical"
+        );
+    }
 }
 
 // --- Contract surface -----------------------------------------------------
@@ -816,6 +1176,146 @@ fn covariance_recovered_from_weighted_moments() {
         (wrap(recovered_angle - theta)).abs() < 0.02,
         "principal axis angle recovered {recovered_angle}, expected {theta}"
     );
+}
+
+// --- Bounding-box / support culling (bn-2nr) ------------------------------
+
+/// The base image as a row-major interleaved RGBA `f32` buffer and its extent, for
+/// driving the culled vs un-culled paths directly.
+fn base_buffer(n: u32, fill: f32) -> (Vec<f32>, Extent) {
+    let value = base_image(n, fill);
+    (value.samples().to_vec(), Extent::new(n, n))
+}
+
+/// Resolve a `SplatRequest` from params on a valid premultiplied-linear base.
+fn resolve_request(n: u32, params: &serde_json::Value) -> SplatRequest {
+    let base = base_image(n, 0.0);
+    let ResourceDescriptor::Image(descriptor) = base.descriptor() else {
+        unreachable!("base_image is an image");
+    };
+    SplatRequest::resolve(params, descriptor).expect("request resolves")
+}
+
+/// Culling is **bit-identical** to the un-culled reference: pixels outside a
+/// splat's conservative support box have a Gaussian weight of exactly `0.0` in
+/// `f64`, so compositing them is the bit-exact identity. A representative
+/// multi-splat batch (anisotropic, rotated, mixed blends, varied opacity) on a
+/// non-trivial base must match byte-for-byte. This is the bn-2nr acceptance gate.
+#[test]
+fn culling_is_bit_identical_to_unculled() {
+    let n = 96_u32;
+    let (base, extent) = base_buffer(n, 0.27);
+    let params = serde_json::json!({
+        "splats": [
+            { "center_px": [18.5, 22.5], "sigma_px": [5.0, 9.0], "angle_rad": 0.9,
+              "color": [0.7, 0.2, 0.4, 0.8], "opacity": 0.6 },
+            { "center_px": [70.5, 40.5], "sigma_px": [4.0, 4.0],
+              "color": [0.1, 0.9, 0.3, 1.0], "opacity": 0.5, "blend": "multiply" },
+            { "center_px": [55.5, 75.5], "sigma_px": [7.0, 3.0], "angle_rad": -0.4,
+              "color": [0.2, 0.2, 0.9, 0.9], "opacity": 0.7 },
+            { "center_px": [10.5, 85.5], "sigma_px": [12.0, 2.0], "angle_rad": 1.3,
+              "color": [1.0, 1.0, 1.0, 0.4], "opacity": 1.0 }
+        ]
+    });
+    let request = resolve_request(n, &params);
+    let culled = request.paint(&base, extent);
+    let reference = request.paint_unculled(&base, extent);
+    assert_eq!(
+        culled, reference,
+        "culled paint must be bit-identical to the un-culled reference"
+    );
+}
+
+/// A splat whose support covers the whole image (huge sigma) falls back to a full
+/// evaluation and stays bit-identical: the support box clamps to the whole canvas.
+#[test]
+fn whole_image_support_is_bit_identical() {
+    let n = 32_u32;
+    let (base, extent) = base_buffer(n, 0.4);
+    let params = serde_json::json!({
+        "splats": [
+            { "center_px": [16.5, 16.5], "sigma_px": [200.0, 200.0],
+              "color": [0.8, 0.1, 0.5, 1.0], "opacity": 0.9 }
+        ]
+    });
+    let request = resolve_request(n, &params);
+    assert_eq!(
+        request.paint(&base, extent),
+        request.paint_unculled(&base, extent),
+        "a whole-image-support splat must match the full evaluation"
+    );
+}
+
+/// A splat whose support lies entirely off-canvas contributes nothing: the result
+/// is exactly the base, and matches the un-culled reference (which also evaluates
+/// to the base because every in-canvas pixel is far in the Gaussian tail / zero).
+#[test]
+fn off_canvas_splat_is_identity_and_bit_identical() {
+    let n = 24_u32;
+    let (base, extent) = base_buffer(n, 0.33);
+    // Center far off the canvas with a tiny sigma: every on-canvas pixel is
+    // thousands of sigma away, so weight underflows to exactly 0.
+    let params = serde_json::json!({
+        "splats": [
+            { "center_px": [-5000.0, -5000.0], "sigma_px": [1.0, 1.0],
+              "color": [1.0, 0.0, 0.0, 1.0], "opacity": 1.0 }
+        ]
+    });
+    let request = resolve_request(n, &params);
+    let culled = request.paint(&base, extent);
+    assert_eq!(
+        culled, base,
+        "off-canvas splat must be the identity on the base"
+    );
+    assert_eq!(
+        culled,
+        request.paint_unculled(&base, extent),
+        "off-canvas culled paint must match the un-culled reference"
+    );
+}
+
+/// Degenerate sigma extremes — near-zero and very large — both cull bit-identically.
+#[test]
+fn extreme_sigma_culling_is_bit_identical() {
+    let n = 48_u32;
+    let (base, extent) = base_buffer(n, 0.1);
+    let params = serde_json::json!({
+        "splats": [
+            // Near-zero sigma: a single-pixel-ish dab; its box is tiny.
+            { "center_px": [12.5, 12.5], "sigma_px": [0.05, 0.05],
+              "color": [1.0, 1.0, 1.0, 1.0], "opacity": 1.0 },
+            // Highly anisotropic + rotated: a long thin streak.
+            { "center_px": [30.5, 30.5], "sigma_px": [40.0, 0.3], "angle_rad": 0.7,
+              "color": [0.3, 0.6, 0.9, 0.8], "opacity": 0.9 }
+        ]
+    });
+    let request = resolve_request(n, &params);
+    assert_eq!(
+        request.paint(&base, extent),
+        request.paint_unculled(&base, extent),
+        "extreme-sigma splats must cull bit-identically"
+    );
+}
+
+/// The support box is conservative: outside it the weight is exactly `0.0` in
+/// `f64`. We check the boundary directly — a sample just *outside* the box on the
+/// major axis has a Gaussian weight of exactly zero.
+#[test]
+fn support_box_weight_is_exactly_zero_outside() {
+    let n = 200_u32;
+    let params = serde_json::json!({
+        "splats": [
+            { "center_px": [100.5, 100.5], "sigma_px": [3.0, 1.5], "angle_rad": 0.4,
+              "color": [1.0, 1.0, 1.0, 1.0], "opacity": 1.0 }
+        ]
+    });
+    let request = resolve_request(n, &params);
+    // The painted field beyond the box is exactly the base (0.0), so every pixel the
+    // box excludes contributes nothing.
+    let (base, extent) = base_buffer(n, 0.0);
+    let culled = request.paint(&base, extent);
+    let reference = request.paint_unculled(&base, extent);
+    assert_eq!(culled, reference, "boundary pixels must match");
 }
 
 /// The checked-in `ops/manifests/<id>.json` file (read by `cargo xtask

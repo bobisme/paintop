@@ -19,5 +19,7 @@
 
 pub use paintop_core as core;
 
+pub mod differential;
 pub mod fixtures;
 pub mod metamorphic;
+pub mod perf;

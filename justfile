@@ -73,6 +73,19 @@ m15-gate:
 m2-gate:
     bash ci/m2-gate.sh
 
+# M3 exit-criteria gate (plan.md §19 M3 "optimized CPU + wgpu backends"; §12
+# backend strategy): runs `just check`, then asserts the FOUR M3 criteria —
+# (1) every GPU op passes its tolerance contract vs the cpu.reference oracle
+# (cpu.optimized always; wgpu differentials on hardware, adapter-skipped cleanly
+# otherwise), (2) no unplanned readback in a fully GPU-compatible chain
+# (adapter-gated), (3) perf baselines emitted + collected as CI artifacts
+# (machine-tolerant, no absolute wall-clock), (4) GPU absence yields a clean
+# fallback / explicit unsupported error (ALWAYS tested, even GPU-less) — then
+# re-runs the M1/M1.5/M2 gates to prove no regression and collects the perf +
+# backend artifacts. This is the executable M3 checklist.
+m3-gate:
+    bash ci/m3-gate.sh
+
 # Run `cargo xtask verify-op` for every MVP op manifest under ops/manifests/.
 verify-ops:
     #!/usr/bin/env bash
@@ -86,6 +99,29 @@ verify-ops:
 # Install the CLI locally (post-merge step per AGENTS.md).
 install:
     cargo install --path crates/paintop-cli --locked
+
+# Performance baselines (plan.md §19 M3 exit criterion 3; bn-7k0).
+#
+# Sweeps the optimized-CPU pointwise kernels (cpu.reference vs cpu.optimized) and
+# the wgpu.separable Gaussian (adapter-gated; skipped cleanly with no GPU), and
+# writes the (op, backend, size, throughput) artifact to target/verification/perf/.
+# Built --release so the throughput is representative. Pass PERF_BASELINE to
+# compare against a checked-in reference at PERF_THRESHOLD relative slack (a
+# regression beyond the threshold exits non-zero); machine-tolerant — no absolute
+# wall-clock is asserted. See ci/perf/README.md.
+PERF_MACHINE := env_var_or_default("PAINTOP_PERF_MACHINE", "local")
+PERF_THRESHOLD := env_var_or_default("PERF_THRESHOLD", "0.25")
+PERF_OUT := env_var_or_default("PERF_OUT", "target/verification/perf/baseline.json")
+PERF_BASELINE := env_var_or_default("PERF_BASELINE", "")
+
+perf-baseline:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=(perf-baseline --out "{{PERF_OUT}}" --machine "{{PERF_MACHINE}}" --threshold "{{PERF_THRESHOLD}}")
+    if [ -n "{{PERF_BASELINE}}" ]; then
+        args+=(--baseline "{{PERF_BASELINE}}")
+    fi
+    cargo run --release -p xtask -- "${args[@]}"
 
 # ----------------------------------------------------------------------------
 # Fuzzing (plan.md §19 M0; AGENT_VERIFICATION §2.1/§2.2).

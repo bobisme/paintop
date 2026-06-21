@@ -302,7 +302,7 @@ impl Convert {
                 encoding_param("from", "The source color encoding of the input image."),
                 encoding_param("to", "The destination color encoding to produce."),
             ],
-            implementations: vec![reference_impl()?],
+            implementations: vec![reference_impl()?, optimized_impl()?],
             test: convert_test_metadata(),
         })
     }
@@ -412,66 +412,134 @@ impl OpContract for Convert {
     }
 }
 
+/// The compute backend serving `color.convert`: the scalar reference oracle or the
+/// autovectorization-friendly `cpu.optimized` kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    /// The scalar reference oracle ([`convert_samples`]).
+    Reference,
+    /// The `cpu.optimized` transfer kernel ([`crate::optimized::kernels`]).
+    Optimized,
+}
+
+/// Map a resolved conversion to the optimized kernel's transfer direction.
+const fn kernel_transfer(conversion: Conversion) -> crate::optimized::kernels::Transfer {
+    use crate::optimized::kernels::Transfer;
+    match (conversion.from, conversion.to) {
+        (Encoding::Srgb, Encoding::LinearSrgb) => Transfer::Decode,
+        (Encoding::LinearSrgb, Encoding::Srgb) => Transfer::Encode,
+        // from == to (incl. raw-linear -> raw-linear): identity passthrough.
+        _ => Transfer::Identity,
+    }
+}
+
+/// Shared compute for both backends: resolve and validate the conversion, then
+/// transform the samples with the selected backend.
+fn compute_backend(
+    backend: Backend,
+    inputs: &InputValues,
+    params: &serde_json::Value,
+) -> std::result::Result<OutputValues, Error> {
+    let image = inputs.get("image").ok_or_else(|| {
+        Error::new(
+            ErrorClass::Reference,
+            E_CONVERT_INPUT,
+            "color.convert requires an `image` input value".to_owned(),
+        )
+    })?;
+    let ResourceDescriptor::Image(descriptor) = image.descriptor() else {
+        return Err(Error::new(
+            ErrorClass::Type,
+            E_CONVERT_INPUT,
+            "color.convert `image` input must be an image resource".to_owned(),
+        ));
+    };
+
+    let conversion = Conversion::resolve(params)?;
+    if descriptor.color != conversion.from.settled() {
+        return Err(Error::new(
+            ErrorClass::Semantic,
+            E_CONVERT_UNSUPPORTED,
+            format!(
+                "color.convert `from` is {:?} but the input image is encoded as {:?}",
+                conversion.from.settled(),
+                descriptor.color
+            ),
+        ));
+    }
+
+    let mut out_descriptor: ImageDescriptor = *descriptor;
+    out_descriptor.color = conversion.to.settled();
+
+    let has_alpha = descriptor.layout.has_alpha();
+    let samples = match backend {
+        Backend::Reference => convert_samples(
+            image.samples(),
+            image.channels(),
+            has_alpha,
+            conversion.transform(),
+        ),
+        Backend::Optimized => crate::optimized::kernels::color_convert(
+            image.samples(),
+            image.channels() as usize,
+            has_alpha,
+            kernel_transfer(conversion),
+        ),
+    };
+
+    let value = ResourceValue::new(
+        ResourceDescriptor::Image(out_descriptor),
+        image.channels(),
+        samples,
+    )
+    .map_err(|actual| {
+        Error::new(
+            ErrorClass::Execution,
+            E_CONVERT_INPUT,
+            format!("color.convert produced a sample buffer of unexpected length {actual}"),
+        )
+    })?;
+
+    let mut out = OutputValues::new();
+    out.insert("image".to_owned(), value);
+    Ok(out)
+}
+
 impl OpImplementation for Convert {
     fn compute(
         &self,
         inputs: &InputValues,
         params: &serde_json::Value,
     ) -> std::result::Result<OutputValues, Error> {
-        let image = inputs.get("image").ok_or_else(|| {
-            Error::new(
-                ErrorClass::Reference,
-                E_CONVERT_INPUT,
-                "color.convert requires an `image` input value".to_owned(),
-            )
-        })?;
-        let ResourceDescriptor::Image(descriptor) = image.descriptor() else {
-            return Err(Error::new(
-                ErrorClass::Type,
-                E_CONVERT_INPUT,
-                "color.convert `image` input must be an image resource".to_owned(),
-            ));
-        };
+        compute_backend(Backend::Reference, inputs, params)
+    }
+}
 
-        let conversion = Conversion::resolve(params)?;
-        if descriptor.color != conversion.from.settled() {
-            return Err(Error::new(
-                ErrorClass::Semantic,
-                E_CONVERT_UNSUPPORTED,
-                format!(
-                    "color.convert `from` is {:?} but the input image is encoded as {:?}",
-                    conversion.from.settled(),
-                    descriptor.color
-                ),
-            ));
-        }
+/// The `cpu.optimized@1` backend for `color.convert@1`.
+///
+/// It applies the same sRGB transfer function as the oracle via the
+/// autovectorization-friendly kernel. `color.convert` is
+/// [`Bounded`](DeterminismTier::Bounded) (the `powf` last bit varies), and the
+/// kernel uses the identical transfer expressions, so the result stays within the
+/// op's envelope (the differential harness enforces it).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ConvertOptimized;
 
-        let mut out_descriptor: ImageDescriptor = *descriptor;
-        out_descriptor.color = conversion.to.settled();
+impl ConvertOptimized {
+    /// Construct the optimized convert backend.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
-        let samples = convert_samples(
-            image.samples(),
-            image.channels(),
-            descriptor.layout.has_alpha(),
-            conversion.transform(),
-        );
-
-        let value = ResourceValue::new(
-            ResourceDescriptor::Image(out_descriptor),
-            image.channels(),
-            samples,
-        )
-        .map_err(|actual| {
-            Error::new(
-                ErrorClass::Execution,
-                E_CONVERT_INPUT,
-                format!("color.convert produced a sample buffer of unexpected length {actual}"),
-            )
-        })?;
-
-        let mut out = OutputValues::new();
-        out.insert("image".to_owned(), value);
-        Ok(out)
+impl OpImplementation for ConvertOptimized {
+    fn compute(
+        &self,
+        inputs: &InputValues,
+        params: &serde_json::Value,
+    ) -> std::result::Result<OutputValues, Error> {
+        compute_backend(Backend::Optimized, inputs, params)
     }
 }
 
@@ -498,6 +566,11 @@ fn reference_impl() -> Result<ImplId> {
     ImplId::new("cpu", "reference", 1)
 }
 
+/// The `cpu.optimized@1` autovectorized backend implementation id.
+fn optimized_impl() -> Result<ImplId> {
+    ImplId::new("cpu", "optimized", 1)
+}
+
 /// The verification declarations for `color.convert@1`: a single-reference,
 /// bounded, pointwise transfer-function op. Differential does not apply (one
 /// implementation). Perceptual is not applicable: the conversion is a closed-form
@@ -514,6 +587,9 @@ fn convert_test_metadata() -> TestMetadata {
         VerificationCategory::AnalyticFixtures,
         VerificationCategory::PropertyTests,
         VerificationCategory::Metamorphic,
+        // The op now exposes a cpu.optimized backend, so differential testing
+        // applies: the cross-backend harness validates it against the oracle.
+        VerificationCategory::Differential,
         VerificationCategory::Goldens,
         VerificationCategory::Fuzzing,
         VerificationCategory::Performance,

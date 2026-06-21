@@ -27,6 +27,7 @@
 //! implementations registered in an [`ImplRegistry`].
 
 pub mod demand;
+pub mod dispatch;
 pub mod error;
 pub mod op_impl;
 pub mod roi;
@@ -35,16 +36,16 @@ pub mod value;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use paintop_ir::{
-    CPU_REFERENCE_BACKEND, CPU_REFERENCE_NAME, OperationManifest, OperationRegistry, Plan,
-    Reference, ResolvedGraph,
-};
+use paintop_ir::{OperationRegistry, Plan, Reference, ResolvedGraph};
 
 use crate::evidence::trace::{
     CacheOutcome, DispatchCompleted, DispatchStarted, DispatchStatus, TraceEvent,
 };
 
 pub use demand::{DemandTrace, compute_demand};
+pub use dispatch::{
+    BackendId, BackendPolicy, BackendSelection, E_BACKEND_UNSUPPORTED, select_backend,
+};
 pub use error::{
     E_IMPLEMENTATION_NOT_FOUND, E_INPUT_NOT_AVAILABLE, E_OP_DISPATCH_FAILED, E_OUTPUT_NOT_PRODUCED,
     ExecError, ExecResult,
@@ -121,6 +122,41 @@ pub fn execute(
     implementations: &ImplRegistry,
     inputs: &BTreeMap<String, ResourceValue>,
 ) -> ExecResult<Execution> {
+    execute_with_policy(
+        plan,
+        graph,
+        manifests,
+        implementations,
+        inputs,
+        &BackendPolicy::reference(),
+    )
+}
+
+/// Run the demanded subgraph under an explicit backend [`BackendPolicy`].
+///
+/// Identical to [`execute`] but the scheduler consults `policy` to choose which
+/// backend serves each node (`plan.md` §12.2): a preferred optimized/`wgpu` kernel
+/// when the op exposes one and it is registered, else the `cpu.reference` oracle
+/// (or an explicit [`E_BACKEND_UNSUPPORTED`] error
+/// for a *required* backend that cannot run the op). The selected backend is named
+/// in each node's `implementation_selected` trace event, so the evidence records
+/// the backend that served the node (`plan.md` §15).
+///
+/// [`execute`] is exactly `execute_with_policy(.., &BackendPolicy::reference())`,
+/// so the default path is byte-identical to the pre-M3 reference executor.
+///
+/// # Errors
+/// The same failures as [`execute`], plus
+/// [`E_BACKEND_UNSUPPORTED`] lifted into an
+/// [`ExecError::Dispatch`] when a required backend cannot serve a node.
+pub fn execute_with_policy(
+    plan: &Plan,
+    graph: &ResolvedGraph,
+    manifests: &OperationRegistry,
+    implementations: &ImplRegistry,
+    inputs: &BTreeMap<String, ResourceValue>,
+    policy: &BackendPolicy,
+) -> ExecResult<Execution> {
     let demand = compute_demand(plan, graph);
 
     // Node params are not retained on the resolved graph (they are not wiring);
@@ -150,6 +186,7 @@ pub fn execute(
             implementations,
             inputs,
             node_outputs: &node_outputs,
+            policy,
         };
         let outputs = dispatch_node(node_id, node, &ctx, &params, &mut trace)?;
         node_outputs.insert(node_id.clone(), outputs);
@@ -186,6 +223,7 @@ struct DispatchContext<'a> {
     implementations: &'a ImplRegistry,
     inputs: &'a BTreeMap<String, ResourceValue>,
     node_outputs: &'a BTreeMap<String, OutputValues>,
+    policy: &'a BackendPolicy,
 }
 
 /// Dispatch one demanded node whole-image: assemble its inputs, select and run
@@ -200,8 +238,8 @@ fn dispatch_node(
 ) -> ExecResult<OutputValues> {
     let op_str = node.op.to_string();
 
-    // The manifest is the authority on declared output ports and the reference
-    // implementation id. Resolution proved the op is registered.
+    // The manifest is the authority on declared output ports. Resolution proved
+    // the op is registered.
     let manifest = ctx
         .manifests
         .get(&node.op)
@@ -209,16 +247,41 @@ fn dispatch_node(
             node: node_id.to_owned(),
             op: op_str.clone(),
         })?;
-    let impl_str = reference_impl_id(manifest);
 
-    // Bind the executable implementation (the compute kernel).
-    let implementation =
-        ctx.implementations
-            .get(&node.op)
-            .ok_or_else(|| ExecError::ImplementationNotFound {
-                node: node_id.to_owned(),
-                op: op_str.clone(),
+    // Select the backend this node is dispatched on from policy (default =
+    // reference). A required backend that cannot run the op surfaces as an
+    // explicit dispatch failure, never a silent fallback.
+    let selection =
+        dispatch::select_backend(&node.op, ctx.manifests, ctx.implementations, ctx.policy)
+            .map_err(|source| {
+                // A selection failure where the op has *some* registered kernel is a
+                // genuine backend-unsupported dispatch failure (e.g. a required
+                // non-reference backend the op simply lacks). With no registered
+                // kernel at all (an empty or partial registry) it is the classic
+                // missing-implementation case, surfaced under its established code.
+                if ctx.implementations.contains(&node.op) {
+                    ExecError::Dispatch {
+                        node: node_id.to_owned(),
+                        op: op_str.clone(),
+                        source: Box::new(source),
+                    }
+                } else {
+                    ExecError::ImplementationNotFound {
+                        node: node_id.to_owned(),
+                        op: op_str.clone(),
+                    }
+                }
             })?;
+    let impl_str = selection.impl_id().to_string();
+
+    // Bind the executable kernel for the selected backend.
+    let implementation = ctx
+        .implementations
+        .get_backend(&node.op, &selection.backend())
+        .ok_or_else(|| ExecError::ImplementationNotFound {
+            node: node_id.to_owned(),
+            op: op_str.clone(),
+        })?;
 
     // Assemble this node's input values; a miss is a runtime availability failure.
     let mut input_values: InputValues = InputValues::new();
@@ -306,27 +369,4 @@ fn describe_reference(reference: &Reference) -> String {
             format!("upstream output `node:{node}/{port}` was not produced")
         }
     }
-}
-
-/// The `cpu.reference@<v>` oracle id declared by `manifest`, rendered as a string
-/// for the trace's selected-implementation field (`plan.md` §15.6).
-///
-/// Every operation must declare a `cpu.reference` implementation (the manifest
-/// validator enforces this), so the lookup normally succeeds; if it is somehow
-/// absent the conventional `cpu.reference@<impl_version>` string is synthesized so
-/// the trace still names an oracle.
-fn reference_impl_id(manifest: &OperationManifest) -> String {
-    manifest
-        .implementations
-        .iter()
-        .find(|i| i.backend() == CPU_REFERENCE_BACKEND && i.name() == CPU_REFERENCE_NAME)
-        .map_or_else(
-            || {
-                format!(
-                    "{CPU_REFERENCE_BACKEND}.{CPU_REFERENCE_NAME}@{}",
-                    manifest.impl_version
-                )
-            },
-            ToString::to_string,
-        )
 }

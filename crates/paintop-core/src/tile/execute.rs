@@ -33,10 +33,13 @@ use paintop_ir::{
     RoiCategory,
 };
 
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
 use super::grid::TileGrid;
-use super::schedule::{TileSchedule, schedule_tiles};
+use super::parallel::ThreadCap;
+use super::schedule::{TileSchedule, TileWorkItem, schedule_tiles};
 use crate::executor::error::{ExecError, ExecResult};
-use crate::executor::op_impl::{ImplRegistry, InputValues, OutputValues};
+use crate::executor::op_impl::{ImplRegistry, InputValues, OpImplementation, OutputValues};
 use crate::executor::roi::RoiAnalysis;
 use crate::executor::value::ResourceValue;
 
@@ -112,6 +115,50 @@ pub fn execute_tiled(
     inputs: &BTreeMap<String, ResourceValue>,
     tile_size: u32,
 ) -> ExecResult<TiledExecution> {
+    execute_tiled_with(
+        plan,
+        graph,
+        checked,
+        manifests,
+        contracts,
+        implementations,
+        roi,
+        inputs,
+        tile_size,
+        ThreadCap::fixed(1),
+    )
+}
+
+/// Execute the demanded subgraph of `graph` tile-by-tile under an explicit
+/// [`ThreadCap`], fanning a node's independent output tiles across the
+/// scheduler-owned Rayon pool (`plan.md` §12.2).
+///
+/// Identical in *result* to [`execute_tiled`] for every `cap`: the cap only governs
+/// *how many threads* evaluate the per-tile compute, never *what* each tile
+/// computes. A node's tiles are independent (disjoint output regions over read-only
+/// inputs) and every scatter is replayed on the calling thread in fixed schedule
+/// order, so the produced buffers are **bit-identical across thread counts** and
+/// equal to the single-threaded [`execute_tiled`] result. `cap` of
+/// [`ThreadCap::fixed(1)`](ThreadCap::fixed) is exactly the sequential M2 path.
+///
+/// # Errors
+/// The same failures as [`execute_tiled`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the tiled executor threads the manifest/contract/impl registries, ROI, inputs, tile size, and the thread cap"
+)]
+pub fn execute_tiled_with(
+    plan: &Plan,
+    graph: &ResolvedGraph,
+    checked: &paintop_ir::CheckedGraph,
+    manifests: &OperationRegistry,
+    contracts: &paintop_ir::ContractRegistry,
+    implementations: &ImplRegistry,
+    roi: &RoiAnalysis,
+    inputs: &BTreeMap<String, ResourceValue>,
+    tile_size: u32,
+    cap: ThreadCap,
+) -> ExecResult<TiledExecution> {
     let extent = graph_extent(graph, checked, inputs);
     let grid = TileGrid::new(extent, tile_size);
     let schedule = schedule_tiles(plan, graph, checked, contracts, roi, grid)?;
@@ -145,7 +192,7 @@ pub fn execute_tiled(
         let category = roi_category(manifests, node);
 
         let tile_count = schedule.demanded_tile_count(&node_id);
-        if tileable(category, node) && tile_count > 0 {
+        if tileable(category, node, contracts, checked, &params) && tile_count > 0 {
             let outputs = run_pointwise_tiled(
                 &node_id,
                 node,
@@ -156,6 +203,7 @@ pub fn execute_tiled(
                 inputs,
                 &node_outputs,
                 &mut stats,
+                cap,
             )?;
             node_outputs.insert(node_id.clone(), outputs);
         } else if neighborhood_tileable(category, node) && tile_count > 0 {
@@ -169,6 +217,7 @@ pub fn execute_tiled(
                 inputs,
                 &node_outputs,
                 &mut stats,
+                cap,
             )?;
             node_outputs.insert(node_id.clone(), outputs);
         } else {
@@ -194,9 +243,111 @@ pub fn execute_tiled(
     })
 }
 
+/// The owned product of computing one output tile of a node: the absolute output
+/// tile rect and the kernel's per-port output values for that tile.
+///
+/// The window origin is carried so a neighbourhood tile can map its window-local
+/// output back into the absolute output frame during the sequential scatter; a
+/// pointwise tile leaves it at the tile origin (the identity offset).
+struct ProducedTile {
+    /// The absolute output tile rect this product fills.
+    tile: Rect,
+    /// The halo-window origin in the output frame (the top-left of the input crop),
+    /// or the tile origin for a pointwise tile.
+    origin: (i64, i64),
+    /// The kernel's produced outputs for this tile (window output for a
+    /// neighbourhood op, co-located output for a pointwise op).
+    produced: OutputValues,
+}
+
+/// Compute every demanded output tile of `node_id` — optionally in parallel over a
+/// scheduler-owned, capped Rayon pool — returning the produced tiles **in schedule
+/// order**.
+///
+/// `prepare` builds the per-tile input crops for one work item (the co-located tile
+/// for a pointwise op, the haloed window for a neighbourhood op) and yields the
+/// kernel inputs plus the window origin. The kernel is a pure, [`Send`] + [`Sync`]
+/// function of those inputs, so evaluating the tiles concurrently is sound and the
+/// per-tile outputs are independent of the worker that produced them. Results are
+/// collected back into the work items' fixed schedule order, so the subsequent
+/// scatter is deterministic regardless of `cap`.
+fn compute_node_tiles<F>(
+    node_id: &str,
+    node: &paintop_ir::ResolvedNode,
+    implementation: &dyn OpImplementation,
+    params: &serde_json::Value,
+    schedule: &TileSchedule,
+    cap: ThreadCap,
+    prepare: F,
+) -> ExecResult<Vec<ProducedTile>>
+where
+    F: Fn(&TileWorkItem) -> ExecResult<(InputValues, (i64, i64))> + Sync,
+{
+    let items: Vec<&TileWorkItem> = schedule
+        .items()
+        .iter()
+        .filter(|i| i.node == node_id)
+        .collect();
+
+    // The per-tile compute: prepare the input crops, dispatch the kernel, keep the
+    // owned product. A pure function of read-only shared state, so it is safe to run
+    // concurrently; the result order is restored by `par_iter`'s index-preserving
+    // `collect`.
+    let compute = |item: &&TileWorkItem| -> ExecResult<ProducedTile> {
+        let (tile_inputs, origin) = prepare(item)?;
+        let produced = implementation
+            .compute(&tile_inputs, params)
+            .map_err(|source| ExecError::Dispatch {
+                node: node_id.to_owned(),
+                op: node.op.to_string(),
+                source: Box::new(source),
+            })?;
+        Ok(ProducedTile {
+            tile: item.tile.rect,
+            origin,
+            produced,
+        })
+    };
+
+    if cap.is_sequential() {
+        // The M2 single-threaded path: no pool, evaluate in schedule order.
+        items.iter().map(compute).collect()
+    } else {
+        // Fan the independent tiles across a pool capped at the policy width. The
+        // scheduler owns this pool — ops never spawn their own — so a deep graph
+        // cannot oversubscribe the machine with nested parallelism. `par_iter`
+        // preserves index order in `collect`, so the produced tiles come back in
+        // schedule order regardless of which worker finished first.
+        run_on_capped_pool(cap, || items.par_iter().map(compute).collect())
+    }
+}
+
+/// Run `work` on a Rayon pool capped at `cap` worker threads (`plan.md` §12.2).
+///
+/// A scoped, locally-built [`rayon::ThreadPool`] bounds the parallel width to the
+/// policy cap; if the pool cannot be built the work runs on the calling thread (a
+/// safe sequential fallback, never a failure). The pool is dropped when this
+/// returns, so it never leaks workers across nodes.
+fn run_on_capped_pool<R, W>(cap: ThreadCap, work: W) -> R
+where
+    W: FnOnce() -> R + Send,
+    R: Send,
+{
+    match rayon::ThreadPoolBuilder::new()
+        .num_threads(cap.resolve())
+        .build()
+    {
+        Ok(pool) => pool.install(work),
+        // A pool-build failure (e.g. a resource limit) degrades to sequential on
+        // the caller's thread; the result is identical, just not parallel.
+        Err(_) => work(),
+    }
+}
+
 /// Run a pointwise node tile-by-tile: for each demanded output tile, crop the
-/// inputs to the tile, dispatch the kernel on the tile-sized window, and scatter
-/// the result into the node's full-extent output buffers.
+/// inputs to the tile, dispatch the kernel on the tile-sized window (optionally in
+/// parallel across the scheduler pool), and scatter the result into the node's
+/// full-extent output buffers.
 #[allow(
     clippy::too_many_arguments,
     reason = "the tiled dispatch threads the borrowed registries and the scatter target"
@@ -211,6 +362,7 @@ fn run_pointwise_tiled(
     inputs: &BTreeMap<String, ResourceValue>,
     node_outputs: &BTreeMap<String, OutputValues>,
     stats: &mut TileStats,
+    cap: ThreadCap,
 ) -> ExecResult<OutputValues> {
     // Allocate the node's full-extent output buffers (zero-filled), to scatter
     // each computed tile into. The output descriptors come from the checked graph.
@@ -221,35 +373,39 @@ fn run_pointwise_tiled(
         }
     }
 
-    for item in schedule.items().iter().filter(|i| i.node == node_id) {
+    // Compute every tile (parallel per the cap), then scatter in schedule order.
+    let tiles = compute_node_tiles(
+        node_id,
+        node,
+        implementation,
+        params,
+        schedule,
+        cap,
+        |item| {
+            // Crop every input to the tile region (pointwise: the co-located tile).
+            let mut tile_inputs: InputValues = InputValues::new();
+            for input in &item.inputs {
+                let value =
+                    resolve_value(&input.source, inputs, node_outputs).ok_or_else(|| {
+                        ExecError::InputNotAvailable {
+                            node: node_id.to_owned(),
+                            port: input.port.clone(),
+                            detail: format!("input `{}` had no value", input.port),
+                        }
+                    })?;
+                tile_inputs.insert(input.port.clone(), crop(value, item.tile.rect));
+            }
+            Ok((tile_inputs, (item.tile.rect.x0, item.tile.rect.y0)))
+        },
+    )?;
+
+    for produced_tile in &tiles {
         stats.requested += 1;
-        let tile = item.tile.rect;
-
-        // Crop every input to the tile region (pointwise: the co-located tile).
-        let mut tile_inputs: InputValues = InputValues::new();
-        for input in &item.inputs {
-            let value = resolve_value(&input.source, inputs, node_outputs).ok_or_else(|| {
-                ExecError::InputNotAvailable {
-                    node: node_id.to_owned(),
-                    port: input.port.clone(),
-                    detail: format!("input `{}` had no value", input.port),
-                }
-            })?;
-            tile_inputs.insert(input.port.clone(), crop(value, tile));
-        }
-
-        let produced = implementation
-            .compute(&tile_inputs, params)
-            .map_err(|source| ExecError::Dispatch {
-                node: node_id.to_owned(),
-                op: node.op.to_string(),
-                source: Box::new(source),
-            })?;
         stats.executed += 1;
-
+        let tile = produced_tile.tile;
         // Scatter each produced tile into the matching full-extent output buffer.
         for (port, target) in &mut outputs {
-            let Some(tile_value) = produced.get(port) else {
+            let Some(tile_value) = produced_tile.produced.get(port) else {
                 return Err(ExecError::OutputNotProduced {
                     node: node_id.to_owned(),
                     op: node.op.to_string(),
@@ -262,11 +418,102 @@ fn run_pointwise_tiled(
     Ok(outputs)
 }
 
-/// Whether a node is safe to tile pointwise: it has at least one input (a source
-/// has none and must run whole-image) and its declared ROI category is
-/// [`Pointwise`](RoiCategory::Pointwise).
-fn tileable(category: Option<RoiCategory>, node: &paintop_ir::ResolvedNode) -> bool {
-    matches!(category, Some(RoiCategory::Pointwise)) && !node.inputs.is_empty()
+/// Whether a node is safe to tile **pointwise**: its declared ROI category is
+/// [`Pointwise`](RoiCategory::Pointwise), it has at least one wired input (a source
+/// has none and must run whole-image), **and** it is *position-independent* — it
+/// reads its input at the co-located output region (`output(x, y) = f(input(x, y))`).
+///
+/// The last condition is the bn-3ai guard. A `Pointwise` ROI category alone is not
+/// sufficient to tile: `paint.linear_gradient@1` / `paint.radial_gradient@1` declare
+/// `Pointwise` but are **position-dependent generators** — they read *no* input
+/// samples (only the `extent_from` size) and compute each output pixel from its
+/// *absolute* coordinate. Tiling such an op would crop the input to the tile and run
+/// the kernel with a shifted tile origin, silently producing a wrong (per-tile
+/// restarted) gradient. We detect this by asking the op's contract what input region
+/// a non-empty output region demands: a true pointwise transform demands a non-empty,
+/// co-located region; a generator demands the empty region from every input. Only the
+/// former is tiled; a generator falls back to a single whole-image dispatch (still
+/// correct, just not tiled).
+fn tileable(
+    category: Option<RoiCategory>,
+    node: &paintop_ir::ResolvedNode,
+    contracts: &paintop_ir::ContractRegistry,
+    checked: &paintop_ir::CheckedGraph,
+    params: &serde_json::Value,
+) -> bool {
+    matches!(category, Some(RoiCategory::Pointwise))
+        && !node.inputs.is_empty()
+        && reads_colocated_input(node, contracts, checked, params)
+}
+
+/// Whether a pointwise node genuinely **reads its input samples** at the co-located
+/// region — the position-independence test that distinguishes a true pointwise
+/// transform (`output(R) = f(input(R))`, tileable) from a position-dependent
+/// generator (a gradient that reads only the input *extent*, not tileable).
+///
+/// We probe the op's [`OpContract::required_inputs`](paintop_ir::OpContract::required_inputs)
+/// with a small, non-trivial output region offset away from the origin. A true
+/// pointwise op demands a **non-empty** input region from at least one wired input;
+/// a generator demands the empty region from every input (it consumes no samples).
+/// If the contract is unavailable or errors, we conservatively answer `false` so the
+/// node runs whole-image — never tiled on an unverified assumption.
+fn reads_colocated_input(
+    node: &paintop_ir::ResolvedNode,
+    contracts: &paintop_ir::ContractRegistry,
+    checked: &paintop_ir::CheckedGraph,
+    params: &serde_json::Value,
+) -> bool {
+    let Some(contract) = contracts.get(&node.op) else {
+        return false;
+    };
+    // The node's input descriptors (so the contract can clamp to real extents) and a
+    // representative output port to probe.
+    let input_descriptors = node_input_descriptors(node, checked);
+    let Some(ports) = checked.node_outputs(&node.id) else {
+        return false;
+    };
+    let Some((output_port, _)) = ports.iter().next() else {
+        return false;
+    };
+    // A small probe rect offset from the origin: a position-dependent generator would
+    // still demand the empty region here, while a true pointwise op demands this rect
+    // (or a superset) back from its input.
+    let probe = Rect::new(1, 1, 2, 2);
+    let mut requested = paintop_ir::OutputRegions::new();
+    requested.insert(output_port.clone(), probe);
+    let Ok(needed) = contract.required_inputs(&requested, &input_descriptors, params) else {
+        return false;
+    };
+    // Tileable iff some wired input is read over a non-empty region.
+    node.inputs.keys().any(|port| {
+        needed
+            .get(port)
+            .is_some_and(|region| !Region::from_rect(*region).is_empty())
+    })
+}
+
+/// The node's input-port descriptors, resolved from the checked graph, so a contract
+/// probe can clamp halos to real input extents (mirrors the scheduler's helper).
+fn node_input_descriptors(
+    node: &paintop_ir::ResolvedNode,
+    checked: &paintop_ir::CheckedGraph,
+) -> paintop_ir::Descriptors {
+    let mut descriptors = paintop_ir::Descriptors::new();
+    for (port, reference) in &node.inputs {
+        match reference {
+            Reference::Node { node, port: up } => {
+                if let Some(descriptor) = checked.output(node, up) {
+                    descriptors.insert(port.clone(), *descriptor);
+                }
+            }
+            Reference::Input { input } => {
+                if let Some(descriptor) = checked.input(input) {
+                    descriptors.insert(port.clone(), *descriptor);
+                }
+            }
+        }
+    }
+    descriptors
 }
 
 /// Whether a node is safe to tile as a single-input **neighbourhood** op: its
@@ -328,6 +575,7 @@ fn run_neighborhood_tiled(
     inputs: &BTreeMap<String, ResourceValue>,
     node_outputs: &BTreeMap<String, OutputValues>,
     stats: &mut TileStats,
+    cap: ThreadCap,
 ) -> ExecResult<OutputValues> {
     let mut outputs: OutputValues = OutputValues::new();
     if let Some(ports) = checked.node_outputs(node_id) {
@@ -336,48 +584,56 @@ fn run_neighborhood_tiled(
         }
     }
 
-    for item in schedule.items().iter().filter(|i| i.node == node_id) {
+    // Compute every window output (parallel per the cap), then extract + scatter the
+    // interior in schedule order.
+    let tiles = compute_node_tiles(
+        node_id,
+        node,
+        implementation,
+        params,
+        schedule,
+        cap,
+        |item| {
+            let tile = item.tile.rect;
+            // Crop the single spatial input to its halo window (the conservative
+            // kernel-dilated footprint the schedule computed), not the co-located
+            // tile.
+            let mut tile_inputs: InputValues = InputValues::new();
+            // The window origin in the output coordinate frame: the input halo's
+            // top-left. A single-input neighbourhood op has exactly one such window.
+            let mut window_origin: Option<(i64, i64)> = None;
+            for input in &item.inputs {
+                let value =
+                    resolve_value(&input.source, inputs, node_outputs).ok_or_else(|| {
+                        ExecError::InputNotAvailable {
+                            node: node_id.to_owned(),
+                            port: input.port.clone(),
+                            detail: format!("input `{}` had no value", input.port),
+                        }
+                    })?;
+                let window = input.region.bounding_rect();
+                window_origin.get_or_insert((window.x0, window.y0));
+                tile_inputs.insert(input.port.clone(), crop(value, window));
+            }
+            // The window origin (top-left of the halo crop) anchors the window output
+            // back into absolute output coordinates. With no input region the op reads
+            // nothing for this tile; treat the tile origin as the anchor.
+            let origin = window_origin.unwrap_or((tile.x0, tile.y0));
+            Ok((tile_inputs, origin))
+        },
+    )?;
+
+    for produced_tile in &tiles {
         stats.requested += 1;
-        let tile = item.tile.rect;
-
-        // Crop the single spatial input to its halo window (the conservative
-        // kernel-dilated footprint the schedule computed), not the co-located tile.
-        let mut tile_inputs: InputValues = InputValues::new();
-        // The window origin in the output coordinate frame: the input halo's
-        // top-left. A single-input neighbourhood op has exactly one such window.
-        let mut window_origin: Option<(i64, i64)> = None;
-        for input in &item.inputs {
-            let value = resolve_value(&input.source, inputs, node_outputs).ok_or_else(|| {
-                ExecError::InputNotAvailable {
-                    node: node_id.to_owned(),
-                    port: input.port.clone(),
-                    detail: format!("input `{}` had no value", input.port),
-                }
-            })?;
-            let window = input.region.bounding_rect();
-            window_origin.get_or_insert((window.x0, window.y0));
-            tile_inputs.insert(input.port.clone(), crop(value, window));
-        }
-        // The window origin (top-left of the halo crop) anchors the window output
-        // back into absolute output coordinates. With no input region the op reads
-        // nothing for this tile; treat the tile origin as the anchor.
-        let (origin_left, origin_top) = window_origin.unwrap_or((tile.x0, tile.y0));
-
-        let produced = implementation
-            .compute(&tile_inputs, params)
-            .map_err(|source| ExecError::Dispatch {
-                node: node_id.to_owned(),
-                op: node.op.to_string(),
-                source: Box::new(source),
-            })?;
         stats.executed += 1;
-
+        let tile = produced_tile.tile;
+        let (origin_left, origin_top) = produced_tile.origin;
         // Extract the output tile from the window output and scatter it into the
         // full-extent buffer. The window output's local coordinate `(lx, ly)` maps
         // to absolute output `(origin_left + lx, origin_top + ly)`, so the output
         // tile lives at window-local rect `tile - (origin_left, origin_top)`.
         for (port, target) in &mut outputs {
-            let Some(window_value) = produced.get(port) else {
+            let Some(window_value) = produced_tile.produced.get(port) else {
                 return Err(ExecError::OutputNotProduced {
                     node: node_id.to_owned(),
                     op: node.op.to_string(),
@@ -661,7 +917,7 @@ pub const fn export_region(descriptor: &ResourceDescriptor) -> Region {
     reason = "test fixtures build exact small ramp buffers from integer indices"
 )]
 mod tests {
-    use super::{crop, execute_tiled, scatter};
+    use super::{crop, scatter};
     use crate::executor::roi::analyze_roi;
     use crate::executor::value::ResourceValue;
     use crate::executor::{InputValues, OpImplementation, OutputValues, execute};
@@ -884,6 +1140,84 @@ mod tests {
         }
     }
 
+    // A position-dependent **generator** modelling paint.linear_gradient@1: it
+    // declares `Pointwise` ROI and is wired to an `extent_from` input, but reads
+    // *no* input samples (its `required_inputs` returns the empty region) and
+    // computes each output pixel from its **absolute** coordinate. The bn-3ai guard
+    // must keep this op off the tiled path; tiling it would restart the ramp at each
+    // tile origin and diverge.
+    struct Gradientish;
+    impl OpContract for Gradientish {
+        fn declared_inputs(&self) -> Vec<(String, ResourceKind)> {
+            vec![("extent_from".to_owned(), ResourceKind::Image)]
+        }
+        fn declared_outputs(&self) -> Vec<(String, ResourceKind)> {
+            vec![("image".to_owned(), ResourceKind::Image)]
+        }
+        fn infer_outputs(
+            &self,
+            i: &Descriptors,
+            _p: &serde_json::Value,
+        ) -> paintop_ir::Result<OutputDescriptors> {
+            let mut o = OutputDescriptors::new();
+            o.insert("image".to_owned(), i["extent_from"]);
+            Ok(o)
+        }
+        fn required_inputs(
+            &self,
+            _o: &OutputRegions,
+            _i: &Descriptors,
+            _p: &serde_json::Value,
+        ) -> paintop_ir::Result<InputRegions> {
+            // Reads only the input *extent*, no samples: an empty demanded region.
+            let mut r = InputRegions::new();
+            r.insert("extent_from".to_owned(), Rect::new(0, 0, 0, 0));
+            Ok(r)
+        }
+        fn validate_postconditions(
+            &self,
+            _o: &OutputDescriptors,
+            _p: &serde_json::Value,
+        ) -> paintop_ir::Result<Vec<paintop_ir::AssertionResult>> {
+            Ok(vec![])
+        }
+    }
+    impl OpImplementation for Gradientish {
+        fn compute(
+            &self,
+            inputs: &InputValues,
+            _params: &serde_json::Value,
+        ) -> Result<OutputValues, Error> {
+            let value = &inputs["extent_from"];
+            let extent = value.extent();
+            let w = extent.width as usize;
+            let h = extent.height as usize;
+            let ch = value.channels() as usize;
+            // A diagonal ramp keyed by absolute (x, y): position-dependent.
+            let mut out = vec![0.0_f32; w * h * ch];
+            for y in 0..h {
+                for x in 0..w {
+                    let base = (y * w + x) * ch;
+                    for (c, slot) in out[base..base + ch].iter_mut().enumerate() {
+                        #[allow(
+                            clippy::cast_precision_loss,
+                            reason = "small test extents; absolute-coordinate ramp"
+                        )]
+                        {
+                            *slot = (x + y + c) as f32;
+                        }
+                    }
+                }
+            }
+            let mut o = OutputValues::new();
+            o.insert(
+                "image".to_owned(),
+                ResourceValue::new(*value.descriptor(), value.channels(), out).unwrap(),
+            );
+            Ok(o)
+        }
+    }
+
     fn manifest(
         id: &str,
         inputs: &[&str],
@@ -937,6 +1271,14 @@ mod tests {
                 &["image"],
                 RoiCategory::Geometric,
             ),
+            // A position-dependent pointwise generator (Pointwise ROI, one wired
+            // input it does not read): the bn-3ai guard must run it whole-image.
+            manifest(
+                "paint.gradientish@1",
+                &["extent_from"],
+                &["image"],
+                RoiCategory::Pointwise,
+            ),
         ])
         .unwrap()
     }
@@ -949,6 +1291,11 @@ mod tests {
             .unwrap();
         c.register("filter.box@1".parse().unwrap(), Box::new(HaloBox))
             .unwrap();
+        c.register(
+            "paint.gradientish@1".parse().unwrap(),
+            Box::new(Gradientish),
+        )
+        .unwrap();
         c
     }
 
@@ -960,6 +1307,11 @@ mod tests {
             .unwrap();
         r.register("filter.box@1".parse().unwrap(), Box::new(HaloBox))
             .unwrap();
+        r.register(
+            "paint.gradientish@1".parse().unwrap(),
+            Box::new(Gradientish),
+        )
+        .unwrap();
         r
     }
 
@@ -1017,12 +1369,16 @@ mod tests {
     }
 
     fn tiled(plan: &Plan, tile_size: u32) -> super::TiledExecution {
+        tiled_with(plan, tile_size, super::ThreadCap::fixed(1))
+    }
+
+    fn tiled_with(plan: &Plan, tile_size: u32, cap: super::ThreadCap) -> super::TiledExecution {
         let reg = registry();
         let graph = resolve_plan(plan, &reg).unwrap();
         let checked = check_graph(plan, &graph, &reg, &contracts(), &BTreeMap::new()).unwrap();
         let roi = analyze_roi(plan, &graph, &checked, &contracts()).unwrap();
         let inputs: BTreeMap<String, ResourceValue> = BTreeMap::new();
-        execute_tiled(
+        super::execute_tiled_with(
             plan,
             &graph,
             &checked,
@@ -1032,8 +1388,115 @@ mod tests {
             &roi,
             &inputs,
             tile_size,
+            cap,
         )
         .unwrap()
+    }
+
+    /// The parallel-determinism property (bn-3ny): a tiled pointwise chain produces
+    /// **bit-identical** output across thread counts {1, 2, 8}, and that output
+    /// equals the M2 single-threaded tiled result. The thread cap is scheduler-owned
+    /// — the kernels never spawn their own pool — and the M2 disjoint-tile / fixed
+    /// scatter order make the result a pure function of the schedule, not the worker
+    /// that produced each tile.
+    #[test]
+    fn parallel_tiled_is_bit_identical_across_thread_counts() {
+        let plan = chain_plan();
+        // The single-threaded M2 baseline.
+        let baseline = tiled_with(&plan, 16, super::ThreadCap::fixed(1));
+        for threads in [1_usize, 2, 8] {
+            for tile_size in [8, 13, 16, 32] {
+                let baseline_ts = tiled_with(&plan, tile_size, super::ThreadCap::fixed(1));
+                let parallel = tiled_with(&plan, tile_size, super::ThreadCap::fixed(threads));
+                for node in ["src", "a", "b"] {
+                    let want = baseline_ts.output(node, "image").unwrap().samples();
+                    let got = parallel.output(node, "image").unwrap().samples();
+                    assert_eq!(
+                        got, want,
+                        "node {node} differs at {threads} threads, tile_size {tile_size}"
+                    );
+                }
+            }
+        }
+        // The export also matches the single-threaded baseline byte-for-byte.
+        let parallel = tiled_with(&plan, 16, super::ThreadCap::fixed(8));
+        assert_eq!(
+            parallel.exports()[0].1.samples(),
+            baseline.exports()[0].1.samples()
+        );
+    }
+
+    /// The parallel path equals the whole-image reference, not just itself across
+    /// thread counts — proving the pool changes only *which thread* evaluates a
+    /// pure tile, never the result.
+    #[test]
+    fn parallel_tiled_equals_whole_image() {
+        let plan = chain_plan();
+        let whole = whole_image(&plan);
+        for threads in [2_usize, 8] {
+            let parallel = tiled_with(&plan, 13, super::ThreadCap::fixed(threads));
+            for (node, expected) in &whole {
+                let got = parallel.output(node, "image").unwrap().samples();
+                assert_eq!(got, expected.as_slice(), "node {node} at {threads} threads");
+            }
+        }
+    }
+
+    /// The neighbourhood (haloed) tiled path is also bit-identical across thread
+    /// counts and equal to the whole-image reference — the halo crop + interior
+    /// extract is a pure per-tile function, so parallel evaluation cannot introduce
+    /// a seam.
+    #[test]
+    fn parallel_neighborhood_tiled_is_bit_identical() {
+        let plan = halo_plan();
+        let whole = whole_image(&plan);
+        for threads in [1_usize, 2, 8] {
+            for tile_size in [8, 13, 20] {
+                let parallel = tiled_with(&plan, tile_size, super::ThreadCap::fixed(threads));
+                let got = parallel.output("box", "image").unwrap().samples();
+                assert_eq!(
+                    got,
+                    whole["box"].as_slice(),
+                    "neighbourhood node differs at {threads} threads, tile_size {tile_size}"
+                );
+            }
+        }
+    }
+
+    /// The tile stats are independent of the thread count: the same requested /
+    /// executed / identity counts whether run on 1 or 8 threads.
+    #[test]
+    fn parallel_tile_stats_match_sequential() {
+        let plan = chain_plan();
+        let seq = tiled_with(&plan, 32, super::ThreadCap::fixed(1));
+        let par = tiled_with(&plan, 32, super::ThreadCap::fixed(8));
+        assert_eq!(seq.stats(), par.stats());
+    }
+
+    /// A throughput smoke test: a small tile size over the 64x48 extent yields many
+    /// tiles per node (≈24 at `tile_size` 8), so the 8-thread pool genuinely fans the
+    /// work out. The run completes (no panic / deadlock / pool leak) and is
+    /// bit-identical to the single-threaded baseline — the cheapest possible proof
+    /// that the scheduler-owned pool drives real parallel tile work correctly.
+    #[test]
+    fn parallel_throughput_smoke_many_tiles() {
+        let plan = chain_plan();
+        let seq = tiled_with(&plan, 8, super::ThreadCap::fixed(1));
+        // Run several times so a data race or a pool-reuse bug would surface as a
+        // non-deterministic divergence across iterations.
+        for _ in 0..8 {
+            let par = tiled_with(&plan, 8, super::ThreadCap::fixed(8));
+            assert_eq!(
+                par.output("b", "image").unwrap().samples(),
+                seq.output("b", "image").unwrap().samples()
+            );
+        }
+        // The auto cap (host parallelism) also runs and matches.
+        let auto = tiled_with(&plan, 8, super::ThreadCap::auto());
+        assert_eq!(
+            auto.output("b", "image").unwrap().samples(),
+            seq.output("b", "image").unwrap().samples()
+        );
     }
 
     #[test]
@@ -1085,6 +1548,132 @@ mod tests {
         let export = &tiled.exports()[0];
         assert_eq!(export.0, "out");
         assert_eq!(export.1.samples(), whole["b"].as_slice());
+    }
+
+    /// An external `input:ext` image of the working extent, the generator's
+    /// `extent_from` source (mirroring a real gradient fed by `input:src`).
+    fn ext_input() -> BTreeMap<String, ResourceValue> {
+        let len = (EXTENT.width * EXTENT.height * 4) as usize;
+        let value = ResourceValue::new(image_descriptor(EXTENT), 4, vec![1.0; len]).unwrap();
+        let mut m = BTreeMap::new();
+        m.insert("ext".to_owned(), value);
+        m
+    }
+
+    /// Whole-image / tiled runners that supply the external `input:ext`, for the
+    /// generator-guard plans.
+    fn whole_image_ext(plan: &Plan) -> BTreeMap<String, Vec<f32>> {
+        let reg = registry();
+        let graph = resolve_plan(plan, &reg).unwrap();
+        let inputs = ext_input();
+        let execution = execute(plan, &graph, &reg, &implementations(), &inputs).unwrap();
+        let mut out = BTreeMap::new();
+        for node in &plan.nodes {
+            if let Some(value) = execution.output(&node.id, "image") {
+                out.insert(node.id.clone(), value.samples().to_vec());
+            }
+        }
+        out
+    }
+
+    fn tiled_ext(plan: &Plan, tile_size: u32) -> super::TiledExecution {
+        let reg = registry();
+        let graph = resolve_plan(plan, &reg).unwrap();
+        let mut input_descriptors: BTreeMap<String, ResourceDescriptor> = BTreeMap::new();
+        input_descriptors.insert("ext".to_owned(), image_descriptor(EXTENT));
+        let checked = check_graph(plan, &graph, &reg, &contracts(), &input_descriptors).unwrap();
+        let roi = analyze_roi(plan, &graph, &checked, &contracts()).unwrap();
+        let inputs = ext_input();
+        super::execute_tiled(
+            plan,
+            &graph,
+            &checked,
+            &reg,
+            &contracts(),
+            &implementations(),
+            &roi,
+            &inputs,
+            tile_size,
+        )
+        .unwrap()
+    }
+
+    /// A plan whose only working node is a position-dependent **generator**
+    /// (`paint.gradientish@1`): a `Pointwise` ROI op with a wired `extent_from`
+    /// input it does not read. Without the bn-3ai guard it would be tiled and each
+    /// tile would restart its absolute-coordinate ramp at the tile origin, diverging
+    /// from the whole-image result.
+    fn gradient_plan() -> Plan {
+        parse_plan(
+            r#"{
+                "paintop": "1.0",
+                "inputs": {"ext": {"kind": "image.file", "path": "e.png"}},
+                "nodes": [
+                    {"id": "g", "op": "paint.gradientish@1", "in": {"extent_from": "input:ext"}}
+                ],
+                "exports": {"out": {"resource": "node:g/image", "kind": "image", "path": "o.png"}}
+            }"#,
+        )
+        .unwrap()
+    }
+
+    /// The bn-3ai guard: tiling a position-dependent generator equals the
+    /// whole-image result bit-for-bit (it falls back to a single whole-image
+    /// dispatch rather than being tiled), across tile sizes that divide the extent
+    /// and ragged ones.
+    #[test]
+    fn position_dependent_generator_is_not_tiled() {
+        let plan = gradient_plan();
+        let whole = whole_image_ext(&plan);
+        for tile_size in [8, 13, 16, 20, 32, 64] {
+            let tiled = tiled_ext(&plan, tile_size);
+            let got = tiled.output("g", "image").unwrap().samples();
+            assert_eq!(
+                got,
+                whole["g"].as_slice(),
+                "tiled generator diverges from whole-image at tile_size {tile_size}"
+            );
+            // The generator runs whole-image: no per-tile work is recorded, so the
+            // stats stay zero.
+            assert_eq!(
+                tiled.stats(),
+                super::TileStats::default(),
+                "a position-dependent generator must not be tiled (tile_size {tile_size})"
+            );
+        }
+    }
+
+    /// The guard does not over-restrict: a real position-independent pointwise op
+    /// (`filter.scale@1`) downstream of the generator is still tiled.
+    #[test]
+    fn pointwise_op_after_a_generator_still_tiles() {
+        let plan = parse_plan(
+            r#"{
+                "paintop": "1.0",
+                "inputs": {"ext": {"kind": "image.file", "path": "e.png"}},
+                "nodes": [
+                    {"id": "g", "op": "paint.gradientish@1", "in": {"extent_from": "input:ext"}},
+                    {"id": "s", "op": "filter.scale@1", "in": {"image": "node:g/image"}}
+                ],
+                "exports": {"out": {"resource": "node:s/image", "kind": "image", "path": "o.png"}}
+            }"#,
+        )
+        .unwrap();
+        let whole = whole_image_ext(&plan);
+        // 64x48 / 32 => 2x2 = 4 tiles for the lone pointwise node `s`; `g` runs
+        // whole-image.
+        let tiled = tiled_ext(&plan, 32);
+        assert_eq!(
+            tiled.output("s", "image").unwrap().samples(),
+            whole["s"].as_slice()
+        );
+        assert_eq!(
+            tiled.output("g", "image").unwrap().samples(),
+            whole["g"].as_slice()
+        );
+        let stats = tiled.stats();
+        assert_eq!(stats.executed, 4, "only the pointwise consumer should tile");
+        assert_eq!(stats.requested, 4);
     }
 
     /// A plan mixing a pointwise op with a genuine neighbourhood op

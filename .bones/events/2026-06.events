@@ -986,3 +986,17 @@
 1782053799896927	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzwAc		item.update	bn-37k	{"field":"labels","value":{"action":"add","label":"gate"}}	blake3:7PD4vN6_DRclpQbqyizUb7CxoIqKfqNjz8tU0decdno
 1782053799918448	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzwQc		item.comment	bn-1774	{"body":"Reviewed all open bones against plan.md, M0_DECISIONS.md, IR_SPEC, AGENT_VERIFICATION, and OP_CATALOG. Found goal:manual already present on every goal. Applied focused fixes: M4 gate now depends on structure tensor/orientation, FFT stretch work is punt/optional/stretch, and M3/M4 gates are tagged quality/gate."}	blake3:XxJrxnlplF6THr38lQ3TPQ5F231DS46oerbHOqmXORc
 1782053818904614	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzwgc		item.move	bn-1774	{"state":"done"}	blake3:yPU63VG3p-iVxG7WzDlPAjWagE9LQ9d_lTe4530OeaI
+1782065808942158	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAQ		item.move	bn-1gs	{"state":"doing"}	blake3:nT8D9yo7xspphH8mMMzWW0Hg9Pcb7xFo8ccFZmPjlgo
+1782065808945420	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAg		item.assign	bn-1gs	{"action":"assign","agent":"paintop-dev"}	blake3:a5kHEgrpiuKUo4wBJc-Y0pvEz2u5u7g0x0D4TSJzFCM
+1782066481022758	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAw		item.move	bn-3qa	{"state":"doing"}	blake3:z1nKtizdfNE40jOxOIJ7aEt37SO6Ns9VBi7FmoA4x5M
+1782066481027388	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBA		item.assign	bn-3qa	{"action":"assign","agent":"paintop-dev"}	blake3:VBvR7X3RaZAro52ETt76n-W3liw6HpkpamGTS4_GWh4
+1782066799628911	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBQ		item.move	bn-b4c	{"state":"doing"}	blake3:07gv6eFQVsdvrHNh9gfLQPshczcsTK35U8JbXxoKe1c
+1782066799635344	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBg		item.assign	bn-b4c	{"action":"assign","agent":"paintop-dev"}	blake3:Lsx_mBFToQoB45yW5jx840XY9LnYIK7OHGu-OmY00Nk
+1782067950684389	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBw		item.move	bn-b4c	{"state":"done"}	blake3:3CMW4BjMb09QKGAQ4tJ8QyXzTG38bgY7dDA02KUDGlk
+1782067963744975	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzCA		item.move	bn-3q0	{"state":"doing"}	blake3:4niWQW3YYo0mvDff69Xc5bf4zUnIyi-84jmkzH006iQ
+1782067963748712	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzCQ		item.assign	bn-3q0	{"action":"assign","agent":"paintop-dev"}	blake3:U-HKl0by470igfzVQVFTI4OrhsoTb1UJaAvLbWGzocE
+1782068320984816	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzCg		item.move	bn-3q0	{"state":"done"}	blake3:P523kMXpguL83Pq6sTh5R57-UIrprw8wvLWcXzEdTW8
+1782068334970620	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzCw		item.move	bn-1gs	{"state":"done"}	blake3:te_2hzHWgND4pEYTSFyZmt9zIz-y4u2tR2cFvcLMElY
+1782068334989876	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzDA		item.move	bn-eji	{"state":"done"}	blake3:ibbdnGVXWk8RI6b45WyyRgKqL0fPjK6sq6OrMd4Mzrc
+1782068335008726	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzDQ		item.move	bn-3qa	{"state":"done"}	blake3:C1qr4cb2t3Q50buxqLRQuBrJNa9TNtToyAXvZhDIJu0
+1782068335012529	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzDg		item.move	bn-3ka	{"reason":"auto-completed: all children of bn-3ka are done","state":"done"}	blake3:MpB_IlHKirGF3nNsm_8hLeF-fhOtjWUij10-kgz6zbo

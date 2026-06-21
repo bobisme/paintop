@@ -1,0 +1,35 @@
+[package]
+name = "paintop-wgpu"
+description = "wgpu (GPU) op backends for paintop: adapter/device probe, GPU resource model, fused-pipeline cache. Validated against the cpu.reference oracle via the cross-backend differential harness."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+paintop-ir.workspace = true
+paintop-core.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# Pinned to major version 27 to stay aligned with msh (msh's Cargo.toml uses
+# `wgpu = "27"`). NO wgpu major upgrade in this work (plan.md §12.3 / §19 M3).
+# wgpu's own internal `unsafe` is fine: `unsafe_code = forbid` is per-crate and
+# applies to OUR code, not the dependency. The wgpu *API* we call is safe Rust.
+wgpu = { workspace = true }
+# `pollster` blocks on wgpu's async adapter/device requests without pulling in a
+# full async runtime; the probe and resource setup are one-shot and synchronous
+# from paintop's deterministic, single-threaded-per-node executor's view.
+pollster = { workspace = true }
+
+[dev-dependencies]
+paintop-testkit = { workspace = true }
+# The cross-backend differential tests run the `paint.gaussian_splats@1`
+# `cpu.reference` oracle (`paintop-cpu`) and compare the `wgpu` kernel against it;
+# a dev-only dependency so the GPU crate never depends on the CPU op backends at
+# build time.
+paintop-cpu = { workspace = true }
+
+[lints]
+workspace = true
