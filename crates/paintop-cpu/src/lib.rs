@@ -22,6 +22,7 @@ pub mod composite_over;
 pub mod convolve;
 pub mod crop;
 pub mod diff;
+pub mod domains;
 pub mod ellipse;
 pub mod fill;
 pub mod flip;

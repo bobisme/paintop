@@ -1,122 +1,43 @@
-//! The MVP operation registry: every M0 op's manifest and `cpu.reference`
-//! implementation, assembled in one place so the executor and the CLI dispatch
-//! the real op set rather than stubs.
+//! The MVP operation registry: assembles every op's manifest and
+//! `cpu.reference` implementation so the executor and the CLI dispatch the real
+//! op set rather than stubs.
 //!
-//! M0 ships fourteen operations (`M0_DECISIONS` D2). Each lives in its own module
-//! (`crate::io`, `crate::color`, …) and exposes a manifest builder plus a
-//! zero-sized [`OpImplementation`] kernel. This module is the single seam that
-//! collects them into the two registries the runtime needs:
+//! Registration is **partitioned by op domain** (`io`, `color`, `alpha`,
+//! `image`, `mask`, `paint`, `composite`, `filter`, `analyze`, `assert`,
+//! `debug`). Each domain owns one `register` fn under [`crate::domains`] that
+//! adds its ops' manifests AND impls; this module just iterates those domain
+//! functions in a fixed order (`crate::domains::REGISTERS`). Adding an op to
+//! an existing domain edits only that domain's module — never this file — so
+//! parallel op work no longer serializes on a single seam.
+//!
+//! Two registries are produced from the same domain functions, so a manifest
+//! can never drift from its implementation:
 //!
 //! * an [`OperationRegistry`] of manifests, which `resolve_plan` /
 //!   `check_graph` type-check against, and
 //! * an [`ImplRegistry`] of compute kernels, which the executor dispatches.
 //!
-//! Both are built from the same source list so a manifest can never drift from
-//! its implementation: adding an op here wires it into both at once.
+//! Both registries are [`BTreeMap`](std::collections::BTreeMap)-backed, so they
+//! iterate in canonical op-id order independent of registration order; the
+//! determinism test below pins that id sequence so it can never silently move.
 
-use paintop_core::executor::{ImplRegistry, OpImplementation};
-use paintop_ir::{Error, OperationManifest, OperationRegistry};
-
-use crate::{
-    adjust::Adjust,
-    alpha::{Premultiply, Unpremultiply},
-    assert::{Finite, NoChangeOutsideMask},
-    blend::Blend,
-    bounds_assert::{AssertAlphaValid, AssertChangedBounds, AssertRange, ChangedBounds},
-    canvas::CreateImage,
-    channel::{AssembleChannels, ExtractChannel},
-    color::Convert,
-    composite::MaskedReplace,
-    composite_over::Over,
-    convolve::Convolve,
-    crop::Crop,
-    diff::Diff,
-    ellipse::EllipseMask,
-    fill::Fill,
-    flip::Flip,
-    gaussian_blur::GaussianBlur,
-    gradient::{LinearGradient, RadialGradient},
-    inspect::Inspect,
-    io::{DecodeImage, EncodeImage},
-    mask::{EmptyMask, FullMask, RectMask},
-    mask_algebra::{BinaryMaskOp, InvertMask},
-    mask_bounds::MaskBounds,
-    mask_polygon::PolygonMask,
-    materialize::Materialize,
-    pad::Pad,
-    resize::Resize,
-    rotate::Rotate90,
-    splat::GaussianSplats,
-    statistics::{Histogram, Statistics},
-};
-
-/// Build the manifest list for every MVP operation, in a stable declaration
-/// order.
-///
-/// # Errors
-/// Propagates the first op's [`schema`](paintop_ir::ErrorClass::Schema) error if
-/// a hard-coded manifest is somehow invalid (it is not).
-fn manifests() -> Result<Vec<OperationManifest>, Error> {
-    Ok(vec![
-        DecodeImage::manifest()?,
-        EncodeImage::manifest()?,
-        Inspect::manifest()?,
-        Convert::manifest()?,
-        Premultiply::manifest()?,
-        Unpremultiply::manifest()?,
-        EllipseMask::manifest()?,
-        GaussianSplats::manifest()?,
-        Adjust::manifest()?,
-        MaskedReplace::manifest()?,
-        Diff::manifest()?,
-        NoChangeOutsideMask::manifest()?,
-        Finite::manifest()?,
-        Materialize::manifest()?,
-        ExtractChannel::manifest()?,
-        AssembleChannels::manifest()?,
-        CreateImage::manifest()?,
-        EmptyMask::manifest()?,
-        FullMask::manifest()?,
-        RectMask::manifest()?,
-        Fill::manifest()?,
-        LinearGradient::manifest()?,
-        RadialGradient::manifest()?,
-        Over::manifest()?,
-        Blend::manifest()?,
-        InvertMask::manifest()?,
-        BinaryMaskOp::union_manifest()?,
-        BinaryMaskOp::intersect_manifest()?,
-        BinaryMaskOp::subtract_manifest()?,
-        MaskBounds::manifest()?,
-        PolygonMask::manifest()?,
-        Crop::manifest()?,
-        Pad::manifest()?,
-        Flip::manifest()?,
-        Rotate90::manifest()?,
-        Resize::manifest()?,
-        Convolve::manifest()?,
-        GaussianBlur::manifest()?,
-        Statistics::manifest()?,
-        Histogram::manifest()?,
-        ChangedBounds::manifest()?,
-        AssertRange::manifest()?,
-        AssertAlphaValid::manifest()?,
-        AssertChangedBounds::manifest()?,
-    ])
-}
+use paintop_core::executor::ImplRegistry;
+use paintop_ir::{Error, OperationRegistry};
 
 /// The manifest [`OperationRegistry`] for the whole MVP op set.
 ///
 /// This is the registry a plan resolves and type-checks against; it is the
 /// authority on each op's declared ports, params, and `cpu.reference`
-/// implementation id.
+/// implementation id. Built by running every domain's `register` fn in fixed
+/// order.
 ///
 /// # Errors
 /// Propagates a [`schema`](paintop_ir::ErrorClass::Schema) error if a manifest is
 /// invalid, or a duplicate-registration error if two manifests share an id
 /// (neither occurs for the fixed MVP set).
 pub fn operation_registry() -> Result<OperationRegistry, Error> {
-    OperationRegistry::from_manifests(manifests()?)
+    let (registry, _impls) = build()?;
+    Ok(registry)
 }
 
 /// The executable [`ImplRegistry`] for the whole MVP op set.
@@ -129,134 +50,58 @@ pub fn operation_registry() -> Result<OperationRegistry, Error> {
 /// Propagates a [`schema`](paintop_ir::ErrorClass::Schema) error if an op id is
 /// invalid or an [`execution`](paintop_ir::ErrorClass::Execution) error if an id
 /// is registered twice (neither occurs for the fixed MVP set).
-#[allow(
-    clippy::too_many_lines,
-    reason = "a flat one-entry-per-op registration table; splitting it would obscure the 1:1 \
-              op-to-kernel mapping"
-)]
 pub fn implementation_registry() -> Result<ImplRegistry, Error> {
-    let mut registry = ImplRegistry::new();
-    let entries: Vec<(&str, Box<dyn OpImplementation>)> = vec![
-        (crate::io::DECODE_OP_ID, Box::new(DecodeImage::new())),
-        (crate::io::ENCODE_OP_ID, Box::new(EncodeImage::new())),
-        (crate::inspect::INSPECT_OP_ID, Box::new(Inspect::new())),
-        (crate::color::CONVERT_OP_ID, Box::new(Convert::new())),
-        (
-            crate::alpha::PREMULTIPLY_OP_ID,
-            Box::new(Premultiply::new()),
-        ),
-        (
-            crate::alpha::UNPREMULTIPLY_OP_ID,
-            Box::new(Unpremultiply::new()),
-        ),
-        (crate::ellipse::ELLIPSE_OP_ID, Box::new(EllipseMask::new())),
-        (crate::splat::SPLAT_OP_ID, Box::new(GaussianSplats::new())),
-        (crate::adjust::ADJUST_OP_ID, Box::new(Adjust::new())),
-        (
-            crate::composite::MASKED_REPLACE_OP_ID,
-            Box::new(MaskedReplace::new()),
-        ),
-        (crate::diff::DIFF_OP_ID, Box::new(Diff::new())),
-        (
-            crate::assert::NO_CHANGE_OUTSIDE_MASK_OP_ID,
-            Box::new(NoChangeOutsideMask::new()),
-        ),
-        (crate::assert::FINITE_OP_ID, Box::new(Finite::new())),
-        (
-            crate::materialize::MATERIALIZE_OP_ID,
-            Box::new(Materialize::new()),
-        ),
-        (
-            crate::channel::EXTRACT_OP_ID,
-            Box::new(ExtractChannel::new()),
-        ),
-        (
-            crate::channel::ASSEMBLE_OP_ID,
-            Box::new(AssembleChannels::new()),
-        ),
-        (crate::canvas::CREATE_OP_ID, Box::new(CreateImage::new())),
-        (crate::mask::EMPTY_OP_ID, Box::new(EmptyMask::new())),
-        (crate::mask::FULL_OP_ID, Box::new(FullMask::new())),
-        (crate::mask::RECT_OP_ID, Box::new(RectMask::new())),
-        (crate::fill::FILL_OP_ID, Box::new(Fill::new())),
-        (
-            crate::gradient::LINEAR_GRADIENT_OP_ID,
-            Box::new(LinearGradient::new()),
-        ),
-        (
-            crate::gradient::RADIAL_GRADIENT_OP_ID,
-            Box::new(RadialGradient::new()),
-        ),
-        (crate::composite_over::OVER_OP_ID, Box::new(Over::new())),
-        (crate::blend::BLEND_OP_ID, Box::new(Blend::new())),
-        (
-            crate::mask_algebra::INVERT_OP_ID,
-            Box::new(InvertMask::new()),
-        ),
-        (
-            crate::mask_algebra::UNION_OP_ID,
-            Box::new(BinaryMaskOp::union()),
-        ),
-        (
-            crate::mask_algebra::INTERSECT_OP_ID,
-            Box::new(BinaryMaskOp::intersect()),
-        ),
-        (
-            crate::mask_algebra::SUBTRACT_OP_ID,
-            Box::new(BinaryMaskOp::subtract()),
-        ),
-        (
-            crate::mask_bounds::BOUNDS_OP_ID,
-            Box::new(MaskBounds::new()),
-        ),
-        (
-            crate::mask_polygon::POLYGON_OP_ID,
-            Box::new(PolygonMask::new()),
-        ),
-        (crate::crop::CROP_OP_ID, Box::new(Crop::new())),
-        (crate::pad::PAD_OP_ID, Box::new(Pad::new())),
-        (crate::flip::FLIP_OP_ID, Box::new(Flip::new())),
-        (crate::rotate::ROTATE90_OP_ID, Box::new(Rotate90::new())),
-        (crate::resize::RESIZE_OP_ID, Box::new(Resize::new())),
-        (crate::convolve::CONVOLVE_OP_ID, Box::new(Convolve::new())),
-        (
-            crate::gaussian_blur::GAUSSIAN_BLUR_OP_ID,
-            Box::new(GaussianBlur::new()),
-        ),
-        (
-            crate::statistics::STATISTICS_OP_ID,
-            Box::new(Statistics::new()),
-        ),
-        (
-            crate::statistics::HISTOGRAM_OP_ID,
-            Box::new(Histogram::new()),
-        ),
-        (
-            crate::bounds_assert::CHANGED_BOUNDS_OP_ID,
-            Box::new(ChangedBounds::new()),
-        ),
-        (
-            crate::bounds_assert::RANGE_OP_ID,
-            Box::new(AssertRange::new()),
-        ),
-        (
-            crate::bounds_assert::ALPHA_VALID_OP_ID,
-            Box::new(AssertAlphaValid::new()),
-        ),
-        (
-            crate::bounds_assert::ASSERT_CHANGED_BOUNDS_OP_ID,
-            Box::new(AssertChangedBounds::new()),
-        ),
-    ];
-    for (id, implementation) in entries {
-        registry.register(id.parse()?, implementation)?;
+    let (_registry, impls) = build()?;
+    Ok(impls)
+}
+
+/// Build both registries together by running every domain's `register` fn in
+/// the fixed [`crate::domains::REGISTERS`] order.
+///
+/// Building them in lockstep is what guarantees the manifest set and impl set
+/// stay identical: each domain adds an op to *both* or neither.
+///
+/// # Errors
+/// Propagates the first domain's registration error (invalid manifest or
+/// duplicate id).
+fn build() -> Result<(OperationRegistry, ImplRegistry), Error> {
+    let mut registry = OperationRegistry::new();
+    let mut impls = ImplRegistry::new();
+    for register in crate::domains::REGISTERS {
+        register(&mut registry, &mut impls)?;
     }
-    Ok(registry)
+    Ok((registry, impls))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{implementation_registry, manifests, operation_registry};
+    use std::collections::BTreeSet;
+
+    use super::{build, implementation_registry, operation_registry};
+
+    /// Collect the on-disk `ops/manifests/*.json` op ids (file stem == op id).
+    fn on_disk_manifest_ids() -> BTreeSet<String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates dir")
+            .parent()
+            .expect("repo root")
+            .join("ops/manifests");
+        let mut ids = BTreeSet::new();
+        for entry in std::fs::read_dir(&dir).expect("read ops/manifests") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .expect("utf8 stem")
+                .to_owned();
+            ids.insert(stem);
+        }
+        ids
+    }
 
     #[test]
     fn emit_manifests_when_requested() {
@@ -273,7 +118,8 @@ mod tests {
             .expect("repo root")
             .join("ops/manifests");
         let only = std::env::var("PAINTOP_EMIT_MANIFESTS").unwrap_or_default();
-        for manifest in manifests().expect("manifests") {
+        let ops = operation_registry().expect("op registry");
+        for manifest in ops.iter() {
             let id = manifest.id.to_string();
             if only != "all" && !only.split(',').any(|t| t == id) {
                 continue;
@@ -284,32 +130,121 @@ mod tests {
         }
     }
 
+    /// Completeness: the on-disk manifest set, the registered manifest set, and
+    /// the registered impl set must be exactly equal.
+    ///
+    /// This replaces the old `len() == N` magic-number assertion. It fails if a
+    /// domain's `register` fn was never wired into
+    /// [`crate::domains::REGISTERS`] (its ops vanish from both registries while
+    /// their `*.json` stays on disk), if an op is dropped from a manifest but
+    /// not its impl (or vice-versa), or if a `*.json` is added with no code — no
+    /// number to bump, ever.
     #[test]
-    fn registers_every_mvp_op() {
-        // The fourteen M0 ops (`M0_DECISIONS` D2) plus the M1 P0 additions wired in
-        // this workspace.
-        const REGISTERED_OPS: usize = 44;
-        assert_eq!(manifests().expect("manifests").len(), REGISTERED_OPS);
-        assert_eq!(
-            operation_registry().expect("op registry").len(),
-            REGISTERED_OPS
-        );
-        assert_eq!(
-            implementation_registry().expect("impls").len(),
-            REGISTERED_OPS
-        );
-    }
-
-    #[test]
-    fn every_manifest_has_a_matching_implementation() {
+    fn registered_set_matches_on_disk_manifests() {
         let ops = operation_registry().expect("op registry");
         let impls = implementation_registry().expect("impls");
+
+        let manifest_ids: BTreeSet<String> = ops.iter().map(|m| m.id.to_string()).collect();
+        let on_disk = on_disk_manifest_ids();
+
+        // Every registered manifest has a registered impl, and vice-versa.
         for manifest in ops.iter() {
             assert!(
                 impls.contains(&manifest.id),
-                "no implementation registered for {}",
+                "manifest {} has no registered implementation",
                 manifest.id
             );
+        }
+        assert_eq!(
+            ops.len(),
+            impls.len(),
+            "manifest count {} != impl count {} (an impl has no manifest or vice-versa)",
+            ops.len(),
+            impls.len()
+        );
+
+        // The registered manifest set == the on-disk manifest set: catches a
+        // domain that was never wired in (json on disk, nothing registered) and
+        // a manifest registered with no checked-in json.
+        assert_eq!(
+            manifest_ids, on_disk,
+            "registered manifest ids differ from ops/manifests/*.json on disk"
+        );
+    }
+
+    /// Determinism: the registry's iteration order (canonical op-id order) must
+    /// stay byte-identical to the order captured from `main` before the
+    /// by-domain refactor. If any op id moves, appears, or disappears, this
+    /// fails — the runtime must see the exact same op sequence.
+    #[test]
+    fn registry_order_is_byte_identical_to_baseline() {
+        const BASELINE: &[&str] = &[
+            "alpha.premultiply@1",
+            "alpha.unpremultiply@1",
+            "analyze.changed_bounds@1",
+            "analyze.diff@1",
+            "analyze.histogram@1",
+            "analyze.statistics@1",
+            "assert.alpha_valid@1",
+            "assert.changed_bounds@1",
+            "assert.finite@1",
+            "assert.no_change_outside_mask@1",
+            "assert.range@1",
+            "color.adjust@1",
+            "color.convert@1",
+            "composite.blend@1",
+            "composite.masked_replace@1",
+            "composite.over@1",
+            "debug.materialize@1",
+            "filter.convolve@1",
+            "filter.gaussian_blur@1",
+            "image.assemble_channels@1",
+            "image.create@1",
+            "image.crop@1",
+            "image.extract_channel@1",
+            "image.flip@1",
+            "image.inspect@1",
+            "image.pad@1",
+            "image.resize@1",
+            "image.rotate90@1",
+            "io.decode_image@1",
+            "io.encode_image@1",
+            "mask.bounds@1",
+            "mask.ellipse@1",
+            "mask.empty@1",
+            "mask.full@1",
+            "mask.intersect@1",
+            "mask.invert@1",
+            "mask.polygon@1",
+            "mask.rect@1",
+            "mask.subtract@1",
+            "mask.union@1",
+            "paint.fill@1",
+            "paint.gaussian_splats@1",
+            "paint.linear_gradient@1",
+            "paint.radial_gradient@1",
+        ];
+        let ops = operation_registry().expect("op registry");
+        let ids: Vec<String> = ops.iter().map(|m| m.id.to_string()).collect();
+        assert_eq!(
+            ids.as_slice(),
+            BASELINE
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>()
+                .as_slice(),
+            "registry op-id order moved relative to the captured baseline"
+        );
+    }
+
+    /// Both registries are built from the same domain functions in lockstep, so
+    /// they expose the same op-id set.
+    #[test]
+    fn manifest_and_impl_sets_agree() {
+        let (registry, impls) = build().expect("build registries");
+        assert_eq!(registry.len(), impls.len());
+        for manifest in registry.iter() {
+            assert!(impls.contains(&manifest.id), "{} missing impl", manifest.id);
         }
     }
 }
