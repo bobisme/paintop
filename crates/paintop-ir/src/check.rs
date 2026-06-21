@@ -174,6 +174,12 @@ pub const E_DUPLICATE_CONTRACT: &str = "E_DUPLICATE_CONTRACT";
 pub struct CheckedGraph {
     /// Per-node inferred output descriptors, keyed by node id then output port.
     outputs: BTreeMap<String, BTreeMap<String, ResourceDescriptor>>,
+    /// The concrete descriptor of each external `input:` resource, keyed by input
+    /// name — the same map [`check_graph`] type-checked the graph against. Retained
+    /// so a downstream pass (notably the backward ROI analysis) can drive an
+    /// operation's [`required_inputs`](crate::contract::OpContract::required_inputs)
+    /// for a node reading an external input, which needs that input's descriptor.
+    inputs: BTreeMap<String, ResourceDescriptor>,
     /// Inferred descriptor for each export, in the resolved graph's export order.
     exports: Vec<(String, ResourceDescriptor)>,
 }
@@ -183,6 +189,13 @@ impl CheckedGraph {
     #[must_use]
     pub fn output(&self, node: &str, port: &str) -> Option<&ResourceDescriptor> {
         self.outputs.get(node).and_then(|ports| ports.get(port))
+    }
+
+    /// The concrete descriptor of the external `input:<input>` resource, if the
+    /// graph declared one. The same map [`check_graph`] received and validated.
+    #[must_use]
+    pub fn input(&self, input: &str) -> Option<&ResourceDescriptor> {
+        self.inputs.get(input)
     }
 
     /// Every inferred output descriptor of `node`, keyed by output port name.
@@ -273,6 +286,7 @@ pub fn check_graph(
 
     Ok(CheckedGraph {
         outputs: node_outputs,
+        inputs: inputs.clone(),
         exports,
     })
 }

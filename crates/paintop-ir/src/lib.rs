@@ -13,10 +13,12 @@ pub mod limits;
 pub mod manifest;
 pub mod normalize;
 pub mod plan;
+pub mod region;
 pub mod registry;
 pub mod resolve;
 pub mod resource;
 pub mod scan;
+pub mod simplify;
 pub mod verify;
 
 pub use canonical::{E_NON_FINITE_FLOAT, to_canonical_bytes, to_canonical_string};
@@ -26,7 +28,8 @@ pub use check::{
 };
 pub use contract::{
     AssertionResult, AssertionStatus, ContractError, Descriptors, E_CONTRACT_PORT_MISMATCH,
-    InputRegions, OpContract, OutputDescriptors, OutputRegions, check_contract_consistency,
+    InputRegionDemand, InputRegions, OpContract, OutputDescriptors, OutputRegionDemand,
+    OutputRegions, check_contract_consistency, propagate_demand,
 };
 pub use error::{Error, ErrorClass, ErrorContext, ErrorEnvelope, ErrorPayload, Result, Suggestion};
 pub use hash::{
@@ -42,6 +45,7 @@ pub use manifest::{
 };
 pub use normalize::{normalize, normalized_value, semantic_hash};
 pub use plan::{Extensions, InputDecl, Node, Plan, parse_plan};
+pub use region::Region;
 pub use registry::{
     E_DUPLICATE_OP_ID, E_OP_NOT_FOUND, E_OP_VERSION_UNSUPPORTED, OperationRegistry,
 };
@@ -59,6 +63,10 @@ pub use resource::{
     VectorEncoding, VectorNormalization, VectorSpace,
 };
 pub use scan::{E_DUPLICATE_KEY, E_INVALID_NUMBER, scan_json};
+pub use simplify::{
+    DEBUG_MATERIALIZE_OP, IDENTITY_OPS, Rewrite, SINK_OPS, SimplificationReport, SimplifyOptions,
+    simplify,
+};
 pub use verify::{
     CategoryStatus, E_VERIFY_CATEGORY_MISSING, E_VERIFY_CATEGORY_NOT_APPLICABLE,
     E_VERIFY_NA_REASON_MISSING, VerificationCategory, VerificationDeclarations, verify_categories,

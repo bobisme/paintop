@@ -170,36 +170,86 @@ fn graph_inner(plan_path: &Path, out: &Path) -> Result<serde_json::Value, Error>
     let registry = paintop_cpu::registry::operation_registry()?;
     let (_text, plan) = load_plan(plan_path)?;
     let graph = resolve_and_check(&plan, &registry)?;
-    let dot = render_dot(&graph);
-    std::fs::write(out, dot.as_bytes())
-        .map_err(|err| io_error(out, &err, "E_GRAPH_WRITE_FAILED"))?;
+    // Render the normalized DAG with op ids, ports, resource kinds, and demand/ROI
+    // annotations (plan.md §15.4, §15.1).
+    let dot = paintop_core::graphviz::render_dot(&plan, &graph, &registry);
+
+    // The destination extension chooses the format: `.svg` is rendered through
+    // Graphviz `dot`; anything else is the DOT source itself.
+    let is_svg = out
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
+    let format = if is_svg { "svg" } else { "dot" };
+    if is_svg {
+        let svg = render_svg_via_graphviz(&dot)?;
+        std::fs::write(out, svg).map_err(|err| io_error(out, &err, "E_GRAPH_WRITE_FAILED"))?;
+    } else {
+        std::fs::write(out, dot.as_bytes())
+            .map_err(|err| io_error(out, &err, "E_GRAPH_WRITE_FAILED"))?;
+    }
+
     Ok(serde_json::json!({
         "ok": true,
         "out": out.display().to_string(),
+        "format": format,
         "nodes": graph.nodes().len(),
     }))
 }
 
-/// Render a resolved graph to a deterministic Graphviz DOT document: one node per
-/// resolved node and one edge per input wire, in canonical (sorted) order.
-fn render_dot(graph: &ResolvedGraph) -> String {
-    use std::fmt::Write as _;
+/// Render a DOT document to SVG by piping it through the Graphviz `dot` binary.
+///
+/// `paintop graph --out graph.svg` (plan.md §15.4) needs a rasterizable form; we
+/// shell out to `dot -Tsvg` rather than re-implement a layout engine. A missing
+/// or failing `dot` is surfaced as an [`asset`](ErrorClass::Asset) error with a
+/// stable code so an agent can fall back to `--out graph.dot`.
+fn render_svg_via_graphviz(dot: &str) -> Result<Vec<u8>, Error> {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
 
-    let mut out = String::from("digraph paintop {\n");
-    for (id, node) in graph.nodes() {
-        let label = format!("{id}\n{}", node.op);
-        // Writing into a `String` is infallible; the result is discarded.
-        let _ = writeln!(out, "  {id:?} [label={label:?}];");
+    let mut child = Command::new("dot")
+        .arg("-Tsvg")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| {
+            Error::new(
+                ErrorClass::Asset,
+                "E_GRAPHVIZ_UNAVAILABLE",
+                format!("could not launch Graphviz `dot` to render SVG: {err}; write `--out graph.dot` instead"),
+            )
+        })?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(dot.as_bytes()).map_err(|err| {
+            Error::new(
+                ErrorClass::Asset,
+                "E_GRAPHVIZ_WRITE_FAILED",
+                format!("failed to pipe DOT to Graphviz `dot`: {err}"),
+            )
+        })?;
     }
-    for (id, node) in graph.nodes() {
-        for reference in node.inputs.values() {
-            if let paintop_ir::Reference::Node { node: src, .. } = reference {
-                let _ = writeln!(out, "  {src:?} -> {id:?};");
-            }
-        }
+
+    let output = child.wait_with_output().map_err(|err| {
+        Error::new(
+            ErrorClass::Asset,
+            "E_GRAPHVIZ_FAILED",
+            format!("Graphviz `dot` did not complete: {err}"),
+        )
+    })?;
+    if !output.status.success() {
+        return Err(Error::new(
+            ErrorClass::Asset,
+            "E_GRAPHVIZ_FAILED",
+            format!(
+                "Graphviz `dot` exited with {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        ));
     }
-    out.push_str("}\n");
-    out
+    Ok(output.stdout)
 }
 
 /// `paintop diff <before> <after>`: report whether two image files are

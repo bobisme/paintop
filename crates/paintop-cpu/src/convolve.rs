@@ -694,7 +694,19 @@ impl OpContract for Convolve {
                 region.x1 + shift_x + (kw - 1 - ox),
                 region.y1 + shift_y + (kh - 1 - oy),
             );
-            regions.insert("input".to_owned(), dilated.intersect(full));
+            // `wrap` is toroidal: a tap overhanging an edge references the *opposite*
+            // edge, which the locally-dilated window does not contain. So when the
+            // dilated window overhangs the input edge under `wrap`, the true read
+            // footprint is the whole input plane — demand it, so a tiled run that
+            // crops to this region still sees every wrapped sample and reproduces
+            // the whole-image result. (When the window stays inside the input no tap
+            // wraps, and the dilated rect is exact.)
+            let needed = if request.mode == BoundaryMode::Wrap && !full.contains_rect(dilated) {
+                full
+            } else {
+                dilated.intersect(full)
+            };
+            regions.insert("input".to_owned(), needed);
         }
         Ok(regions)
     }

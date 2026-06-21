@@ -74,9 +74,20 @@ pub enum ExecError {
         #[source]
         source: Box<Error>,
     },
+    /// The content-addressed cache failed while computing a key, or reading /
+    /// writing an entry, during a cache-aware execution.
+    #[error("cache failure during execution: {0}")]
+    Cache(#[source] crate::cache::error::CacheError),
 }
 
 impl ExecError {
+    /// Lift a cache failure into an executor failure (used by the cache-aware
+    /// executor so its result type stays [`ExecResult`]).
+    #[must_use]
+    pub const fn from_cache(err: crate::cache::error::CacheError) -> Self {
+        Self::Cache(err)
+    }
+
     /// The stable machine code for this failure.
     #[must_use]
     pub const fn code(&self) -> &'static str {
@@ -85,10 +96,12 @@ impl ExecError {
             Self::InputNotAvailable { .. } => E_INPUT_NOT_AVAILABLE,
             Self::OutputNotProduced { .. } => E_OUTPUT_NOT_PRODUCED,
             Self::Dispatch { .. } => E_OP_DISPATCH_FAILED,
+            Self::Cache(err) => err.code(),
         }
     }
 
-    /// The graph node this failure is attributed to.
+    /// The graph node this failure is attributed to (empty for a cache failure,
+    /// which is not node-scoped).
     #[must_use]
     pub fn node(&self) -> &str {
         match self {
@@ -96,6 +109,7 @@ impl ExecError {
             | Self::InputNotAvailable { node, .. }
             | Self::OutputNotProduced { node, .. }
             | Self::Dispatch { node, .. } => node,
+            Self::Cache(_) => "",
         }
     }
 

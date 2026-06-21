@@ -609,3 +609,9 @@
 1782020381259352	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBg		item.assign	bn-1v6	{"action":"assign","agent":"paintop-dev"}	blake3:eT5pbYwbCFzIQOkexO9dScMq5Cf4CNqDeve4fW1goDw
 1782020517526802	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBw		item.move	bn-1v6	{"state":"done"}	blake3:TGznn-Q7nZYHBWVEX4Z_CYiD_UgZfjQlCirgUvJi3c4
 1782020517532736	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzCA		item.move	bn-56s	{"reason":"auto-completed: all children of bn-56s are done","state":"done"}	blake3:L7fdAlcLKmQttDtaGw5Ih_pUQ7A5e6MHysr5nuUY-Ts
+1782021678618995	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAQ		item.move	bn-6kl	{"state":"done"}	blake3:2sWuluRRXa1nl_KPjVt_-G25rCDi5hgVsYYUxyORxA0
+1782021956304413	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAg		item.move	bn-vim	{"state":"done"}	blake3:dlq5eEJe4F22n9xNWDSpe31wLILeZJXfwxbaZndWG1A
+1782022466876941	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAw		item.move	bn-y0h	{"state":"done"}	blake3:W9GBBKS0d1qvos4YrwjZR7vlvI0EhpinlurN5EYkkGM
+1782022922403501	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBA		item.move	bn-1vx	{"state":"done"}	blake3:s1jZnCd_fE5xS1ZW7OLcHpk88Ch2PlZa6LGNBiZfb8E
+1782022922410448	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBQ		item.move	bn-3mm	{"reason":"auto-completed: all children of bn-3mm are done","state":"done"}	blake3:ySiz9SXRIlpvxV7XLf7oMVYxI5r9RvLPF061BRLwGIQ
+1782023724772913	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBg		item.move	bn-3r8	{"state":"done"}	blake3:Y1S_dEentP204DEn1pRA_HY1KCo-erlFEfnial2Joos

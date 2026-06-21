@@ -35,6 +35,7 @@ use std::collections::BTreeMap;
 
 use crate::error::{Error, ErrorClass, Result};
 use crate::manifest::{OperationManifest, ResourceKind};
+use crate::region::Region;
 use crate::resource::{Rect, ResourceDescriptor};
 
 /// A contract's declared port shape (its name and resource kind) disagreed with
@@ -59,6 +60,65 @@ pub type OutputRegions = BTreeMap<String, Rect>;
 /// The input regions an operation must consume to satisfy a set of
 /// [`OutputRegions`], keyed by input port name (`IR_SPEC` §18 `InputRegions`).
 pub type InputRegions = BTreeMap<String, Rect>;
+
+/// An accumulated demand over an operation's *output* ports, keyed by output
+/// port name (`IR_SPEC` §18, `plan.md` §10–§11).
+///
+/// Unlike [`OutputRegions`], whose value is one consumer's single [`Rect`], a
+/// [`Region`] value accumulates the demands of *every* downstream consumer of a
+/// port into one conservative region. The backward demand pass builds this for a
+/// producer before asking the producer what inputs it needs.
+pub type OutputRegionDemand = BTreeMap<String, Region>;
+
+/// The input-port demand a backward ROI step produces, keyed by input port name.
+///
+/// The [`Region`]-valued analogue of [`InputRegions`]: the result of pushing a
+/// [`OutputRegionDemand`] through an operation's
+/// [`required_inputs`](OpContract::required_inputs).
+pub type InputRegionDemand = BTreeMap<String, Region>;
+
+/// Propagate an accumulated output demand backward through one operation.
+///
+/// Drives the operation's [`required_inputs`](OpContract::required_inputs),
+/// returning the demand on each input port as a [`Region`] (`IR_SPEC` §18,
+/// `plan.md` §10–§11).
+///
+/// This is the demand-graph plumbing the backward ROI walk drives: it collapses
+/// each output port's accumulated [`Region`] to its conservative bounding
+/// [`Rect`], hands those rects to the operation's executable contract, and lifts
+/// the contract's per-input [`Rect`] result back into [`Region`]s. An empty
+/// output demand on a port contributes nothing.
+///
+/// The collapse-to-bounding-box is sound because the ROI model is conservative:
+/// the bounding rect contains every demanded output pixel, so the contract's
+/// answer covers every true contributor.
+///
+/// # Errors
+/// Propagates any [`type`](ErrorClass::Type) / [`semantic`](ErrorClass::Semantic)
+/// error the operation's [`required_inputs`](OpContract::required_inputs) raises.
+pub fn propagate_demand(
+    contract: &dyn OpContract,
+    output_demand: &OutputRegionDemand,
+    inputs: &Descriptors,
+    params: &serde_json::Value,
+) -> Result<InputRegionDemand> {
+    // Collapse each non-empty output Region to its bounding Rect for the contract.
+    let mut requested: OutputRegions = OutputRegions::new();
+    for (port, region) in output_demand {
+        if let Some(bounds) = region.bounds() {
+            requested.insert(port.clone(), bounds);
+        }
+    }
+
+    let needed = contract.required_inputs(&requested, inputs, params)?;
+
+    // Lift each returned input Rect into a Region (an empty rect -> empty demand).
+    let mut demand = InputRegionDemand::new();
+    for (port, rect) in needed {
+        demand.insert(port, Region::from_rect(rect));
+    }
+    Ok(demand)
+}
 
 /// The outcome of one declared postcondition / invariant
 /// (`IR_SPEC` §18 `AssertionResult`).
@@ -494,6 +554,52 @@ mod tests {
         let err = check_contract_consistency(&manifest, &InvertStub).unwrap_err();
         assert_eq!(err.code, E_CONTRACT_PORT_MISMATCH);
         assert!(err.message.contains('1') || err.message.contains('2'));
+    }
+
+    #[test]
+    fn propagate_demand_lifts_pointwise_regions_through_the_contract() {
+        use super::propagate_demand;
+        use crate::region::Region;
+
+        let stub = InvertStub;
+        let mut demand = super::OutputRegionDemand::new();
+        // Two consumers demand disjoint output rects; the region accumulates them.
+        let mut region = Region::from_rect(Rect::new(4, 4, 20, 20));
+        region.push(Rect::new(30, 30, 40, 40));
+        demand.insert("image".to_owned(), region);
+
+        let input_demand = propagate_demand(
+            &stub,
+            &demand,
+            &Descriptors::new(),
+            &serde_json::Value::Null,
+        )
+        .unwrap();
+        // Pointwise: the input demand equals the accumulated output bounding box.
+        assert_eq!(
+            input_demand["image"].bounding_rect(),
+            Rect::new(4, 4, 40, 40)
+        );
+    }
+
+    #[test]
+    fn propagate_demand_drops_empty_output_demands() {
+        use super::propagate_demand;
+        use crate::region::Region;
+
+        let stub = InvertStub;
+        let mut demand = super::OutputRegionDemand::new();
+        demand.insert("image".to_owned(), Region::EMPTY);
+        // The stub errors when no `image` output region is requested; an empty
+        // Region must be omitted from the requested set, surfacing that error.
+        let err = propagate_demand(
+            &stub,
+            &demand,
+            &Descriptors::new(),
+            &serde_json::Value::Null,
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "E_MISSING_OUTPUT_REGION");
     }
 
     #[test]

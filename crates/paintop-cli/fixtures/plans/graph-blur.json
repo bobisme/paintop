@@ -1,0 +1,30 @@
+{
+  "paintop": "1.0",
+  "name": "graph-viz-fixture",
+  "description": "A small valid two-node graph for the `paintop graph` integration test: a created image blurred once, exported.",
+  "inputs": {},
+  "nodes": [
+    {
+      "id": "base",
+      "op": "image.create@1",
+      "params": {
+        "width": 8,
+        "height": 8,
+        "layout": "rgba",
+        "fill": [0.0, 0.0, 0.0, 1.0],
+        "color": "linear-srgb",
+        "range": "scene-referred",
+        "alpha": "straight"
+      }
+    },
+    {
+      "id": "blurred",
+      "op": "filter.gaussian_blur@1",
+      "in": { "input": "node:base/image" },
+      "params": { "sigma": 2.0 }
+    }
+  ],
+  "exports": {
+    "result": { "resource": "node:blurred/output", "kind": "image", "path": "out.png" }
+  }
+}

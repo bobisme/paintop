@@ -252,6 +252,28 @@ impl ResolvedGraph {
     pub fn node(&self, id: &str) -> Option<&ResolvedNode> {
         self.nodes.get(id)
     }
+
+    /// Assemble a [`ResolvedGraph`] from already-validated parts.
+    ///
+    /// This is the constructor graph rewriters ([`crate::simplify`]) use to emit a
+    /// transformed graph without re-running [`resolve_plan`]. The caller is
+    /// responsible for the invariants `resolve_plan` would otherwise establish:
+    /// every reference resolves, no port is invented, and `topo` is a valid
+    /// topological order of `nodes`. The simplification pass preserves these by
+    /// construction (it only ever *removes* nodes/edges or rewires a consumer onto
+    /// an equivalent producer), and re-derives `topo` from the surviving nodes.
+    #[must_use]
+    pub(crate) const fn from_parts(
+        nodes: BTreeMap<String, ResolvedNode>,
+        exports: Vec<ResolvedExport>,
+        topo: Vec<String>,
+    ) -> Self {
+        Self {
+            nodes,
+            exports,
+            topo,
+        }
+    }
 }
 
 /// Resolve every reference in `plan` against its declared inputs and `registry`,

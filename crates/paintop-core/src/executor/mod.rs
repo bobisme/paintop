@@ -29,6 +29,7 @@
 pub mod demand;
 pub mod error;
 pub mod op_impl;
+pub mod roi;
 pub mod value;
 
 use std::collections::BTreeMap;
@@ -51,6 +52,7 @@ pub use error::{
 pub use op_impl::{
     E_DUPLICATE_IMPLEMENTATION, ImplRegistry, InputValues, OpImplementation, OutputValues,
 };
+pub use roi::{RoiAnalysis, analyze_roi, analyze_roi_from_seeds};
 pub use value::ResourceValue;
 
 /// The product of one whole-image execution: the demand trace, every produced

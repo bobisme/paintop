@@ -215,6 +215,113 @@ fn selftest_is_a_stub_that_exits_zero() {
     assert_eq!(value["status"], serde_json::json!("stub"));
 }
 
+// ---- `paintop graph` (bn-1hv) ----------------------------------------------
+
+/// A unique scratch path under the OS temp dir for a graph output file.
+fn scratch(name: &str) -> PathBuf {
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    std::env::temp_dir().join(format!("paintop-graph-{pid}-{nanos}-{name}"))
+}
+
+#[test]
+fn graph_emits_valid_dot_with_ports_kinds_and_demand() {
+    let out = scratch("g.dot");
+    let output = run(&[
+        "graph",
+        fixture("graph-blur.json").to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let value = stdout_json(&output);
+    assert_eq!(value["ok"], serde_json::json!(true));
+    assert_eq!(value["format"], serde_json::json!("dot"));
+    assert_eq!(value["nodes"], serde_json::json!(2));
+
+    let dot = std::fs::read_to_string(&out).expect("dot written");
+    // Valid DOT envelope.
+    assert!(dot.starts_with("digraph paintop {"));
+    assert!(dot.trim_end().ends_with('}'));
+    // Op ids, ports, resource kinds, ROI + demand annotations are present.
+    assert!(dot.contains("image.create@1"));
+    assert!(dot.contains("filter.gaussian_blur@1"));
+    assert!(dot.contains("input : Image"), "input port + kind labeled");
+    assert!(dot.contains("roi: geometric"), "ROI annotation present");
+    assert!(dot.contains("demanded"), "demand annotation present");
+    // Node + edge set matches the normalized graph exactly: two nodes, the wire
+    // base -> blurred.
+    assert!(dot.contains("\"base\" [label="));
+    assert!(dot.contains("\"blurred\" [label="));
+    assert!(dot.contains("\"base\" -> \"blurred\""));
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn graph_dot_round_trips_through_graphviz() {
+    // Skip gracefully when Graphviz `dot` is not installed in the environment.
+    let has_dot = Command::new("dot")
+        .arg("-V")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !has_dot {
+        eprintln!("skipping: Graphviz `dot` not available");
+        return;
+    }
+    let out = scratch("g-rt.dot");
+    let output = run(&[
+        "graph",
+        fixture("graph-blur.json").to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+
+    // The emitted DOT must parse + lay out through Graphviz without error.
+    let rendered = Command::new("dot")
+        .arg("-Tsvg")
+        .arg(&out)
+        .output()
+        .expect("dot runnable");
+    assert!(
+        rendered.status.success(),
+        "graphviz rejected the emitted DOT: {}",
+        String::from_utf8_lossy(&rendered.stderr)
+    );
+    assert!(
+        rendered.stdout.starts_with(b"<?xml"),
+        "graphviz produced SVG output"
+    );
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
+fn graph_svg_output_is_produced_when_extension_is_svg() {
+    let has_dot = Command::new("dot")
+        .arg("-V")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !has_dot {
+        eprintln!("skipping: Graphviz `dot` not available");
+        return;
+    }
+    let out = scratch("g.svg");
+    let output = run(&[
+        "graph",
+        fixture("graph-blur.json").to_str().unwrap(),
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
+    let value = stdout_json(&output);
+    assert_eq!(value["format"], serde_json::json!("svg"));
+    let svg = std::fs::read(&out).expect("svg written");
+    assert!(svg.starts_with(b"<?xml"), "an SVG document was written");
+    let _ = std::fs::remove_file(&out);
+}
+
 /// Decode captured stderr for assertion messages.
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()

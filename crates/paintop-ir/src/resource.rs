@@ -543,14 +543,122 @@ impl Rect {
     }
 
     /// The smallest half-open rect containing both inputs (their bounding box).
+    ///
+    /// An *empty* operand contributes nothing: the union of an empty rect with a
+    /// non-empty one is the non-empty one (an empty rect covers no pixels, so its
+    /// degenerate bounds must not inflate the result). The union of two empty
+    /// rects is the canonical [`Rect::EMPTY`].
     #[must_use]
     pub fn union(self, other: Self) -> Self {
-        Self {
-            x0: self.x0.min(other.x0),
-            y0: self.y0.min(other.y0),
-            x1: self.x1.max(other.x1),
-            y1: self.y1.max(other.y1),
+        match (self.is_empty(), other.is_empty()) {
+            (true, true) => Self::EMPTY,
+            (true, false) => other,
+            (false, true) => self,
+            (false, false) => Self {
+                x0: self.x0.min(other.x0),
+                y0: self.y0.min(other.y0),
+                x1: self.x1.max(other.x1),
+                y1: self.y1.max(other.y1),
+            },
         }
+    }
+
+    /// The canonical empty rect `[0, 0) × [0, 0)`: valid, zero-area, the identity
+    /// element of [`union`](Rect::union).
+    pub const EMPTY: Self = Self {
+        x0: 0,
+        y0: 0,
+        x1: 0,
+        y1: 0,
+    };
+
+    /// A rect covering exactly the `extent.width × extent.height` pixels of an
+    /// image with its origin at `(0, 0)` — the *full* domain of a resource.
+    #[must_use]
+    pub const fn from_extent(extent: Extent) -> Self {
+        Self {
+            x0: 0,
+            y0: 0,
+            x1: extent.width as i64,
+            y1: extent.height as i64,
+        }
+    }
+
+    /// This rect translated by `(dx, dy)` (a pure geometric shift; bounds are not
+    /// clamped). Used to map an output region back to its co-located input region
+    /// under a crop/pad/composite offset.
+    #[must_use]
+    pub const fn translate(self, dx: i64, dy: i64) -> Self {
+        Self {
+            x0: self.x0 + dx,
+            y0: self.y0 + dy,
+            x1: self.x1 + dx,
+            y1: self.y1 + dy,
+        }
+    }
+
+    /// This rect dilated outward by a uniform `halo` of pixels on every side: a
+    /// neighbourhood operation's output region `R` reads input region `R` grown by
+    /// the kernel halo (`IR_SPEC` §18, [`RoiCategory::LocalHalo`]).
+    ///
+    /// An *empty* rect dilates to [`Rect::EMPTY`] (no output pixels demand any
+    /// input). A non-empty rect grows by `halo` on each edge; the grown bounds are
+    /// clamped to `i64` and never overflow for realistic halos.
+    ///
+    /// [`RoiCategory::LocalHalo`]: crate::manifest::RoiCategory::LocalHalo
+    #[must_use]
+    pub fn dilate(self, halo: u32) -> Self {
+        if self.is_empty() {
+            return Self::EMPTY;
+        }
+        let h = i64::from(halo);
+        Self {
+            x0: self.x0.saturating_sub(h),
+            y0: self.y0.saturating_sub(h),
+            x1: self.x1.saturating_add(h),
+            y1: self.y1.saturating_add(h),
+        }
+    }
+
+    /// This rect dilated by independent positive `dx`/`dy` halos on the horizontal
+    /// and vertical axes (an anisotropic kernel). Empty in, [`Rect::EMPTY`] out.
+    #[must_use]
+    pub fn dilate_xy(self, dx: u32, dy: u32) -> Self {
+        if self.is_empty() {
+            return Self::EMPTY;
+        }
+        let (hx, hy) = (i64::from(dx), i64::from(dy));
+        Self {
+            x0: self.x0.saturating_sub(hx),
+            y0: self.y0.saturating_sub(hy),
+            x1: self.x1.saturating_add(hx),
+            y1: self.y1.saturating_add(hy),
+        }
+    }
+
+    /// This rect clipped (intersected) to the full domain of `extent`, the
+    /// canonical "clamp a demanded region to the producer's actual pixels"
+    /// operation. The result [`is_empty`](Rect::is_empty) when the rect lies
+    /// wholly outside the extent.
+    #[must_use]
+    pub fn clamp_to_extent(self, extent: Extent) -> Self {
+        self.intersect(Self::from_extent(extent))
+    }
+
+    /// Whether this rect fully contains `other`: every pixel of `other` is a pixel
+    /// of `self`. An empty `other` is contained by any rect (it has no pixels to
+    /// fall outside). Used by the ROI suite to prove a demanded source region
+    /// *covers* every contributor.
+    #[must_use]
+    pub const fn contains_rect(self, other: Self) -> bool {
+        if other.is_empty() {
+            return true;
+        }
+        !self.is_empty()
+            && self.x0 <= other.x0
+            && self.y0 <= other.y0
+            && self.x1 >= other.x1
+            && self.y1 >= other.y1
     }
 }
 
@@ -1065,6 +1173,51 @@ impl ResourceDescriptor {
         }
     }
 
+    /// This descriptor with its pixel extent replaced by `extent`, leaving every
+    /// other type field (layout, scalar, color, …) unchanged.
+    ///
+    /// The descriptor of a *window* of a resource (a tile, an ROI crop) is the
+    /// resource's descriptor at the window's extent: the type semantics are
+    /// identical, only the pixel count differs. A [`Report`](Self::Report) carries
+    /// no raster, so its summarized extent is replaced verbatim.
+    #[must_use]
+    pub const fn with_extent(self, extent: Extent) -> Self {
+        match self {
+            Self::Image(mut d) => {
+                d.extent = extent;
+                Self::Image(d)
+            }
+            Self::Mask(mut d) => {
+                d.extent = extent;
+                Self::Mask(d)
+            }
+            Self::Field1(mut d) => {
+                d.extent = extent;
+                Self::Field1(d)
+            }
+            Self::Field2(mut d) => {
+                d.extent = extent;
+                Self::Field2(d)
+            }
+            Self::Field3(mut d) => {
+                d.extent = extent;
+                Self::Field3(d)
+            }
+            Self::SdfMask(mut d) => {
+                d.extent = extent;
+                Self::SdfMask(d)
+            }
+            Self::Report(mut d) => {
+                d.extent = extent;
+                Self::Report(d)
+            }
+            Self::LabelMap(mut d) => {
+                d.extent = extent;
+                Self::LabelMap(d)
+            }
+        }
+    }
+
     /// The abstract [`ResourceKind`](crate::manifest::ResourceKind) this concrete
     /// descriptor realizes.
     ///
@@ -1130,6 +1283,23 @@ mod tests {
         let back: ResourceDescriptor = serde_json::from_value(value).unwrap();
         assert_eq!(back, d);
         assert_eq!(back.extent(), Extent::new(2048, 2048));
+    }
+
+    #[test]
+    fn with_extent_replaces_only_the_extent() {
+        let d = ResourceDescriptor::Image(sample_image());
+        let windowed = d.with_extent(Extent::new(128, 128));
+        assert_eq!(windowed.extent(), Extent::new(128, 128));
+        assert_eq!(windowed.kind(), d.kind());
+        // Every other type field is preserved.
+        if let (ResourceDescriptor::Image(a), ResourceDescriptor::Image(b)) = (d, windowed) {
+            assert_eq!(a.layout, b.layout);
+            assert_eq!(a.color, b.color);
+            assert_eq!(a.alpha, b.alpha);
+            assert_eq!(a.semantic, b.semantic);
+        } else {
+            panic!("variant changed");
+        }
     }
 
     #[test]

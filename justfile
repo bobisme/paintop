@@ -62,6 +62,16 @@ m1-gate:
 # This is the executable M1.5 checklist.
 m15-gate:
     bash ci/m15-gate.sh
+# M2 exit-criteria gate (plan.md §19 M2; §11 demand/tile model; AGENT_VERIFICATION
+# §12): runs `just check`, then asserts the FOUR M2 criteria — (1) tiled ==
+# whole-image bit-identical for exact ops, (2) ROI execution differentially
+# equivalent to full execution, (3) a small masked 4K edit touches only the
+# predicted halo-expanded tile set (executed-tile count <= conservative
+# prediction), (4) cache replay performs zero unnecessary execution — re-runs the
+# M1 op suite to prove no regression, and collects the tile-count / performance
+# artifacts. This is the executable M2 checklist.
+m2-gate:
+    bash ci/m2-gate.sh
 
 # Run `cargo xtask verify-op` for every MVP op manifest under ops/manifests/.
 verify-ops:
