@@ -50,6 +50,19 @@ m0-gate:
 m1-gate:
     bash ci/m1-gate.sh
 
+# M1.5 exit-criteria gate (plan.md §25 original SDF variant; M0_DECISIONS D1;
+# OP_CATALOG §4): runs `just check` (which includes the EDT brute-force
+# differential, offset-composition + boolean SDF law property suites, the
+# mask-topology tests, and the SDF north-star conformance integration test),
+# asserts `op list` exposes the full M1.5 SDF + topology op set (each with a
+# manifest), runs `verify-op` for every NEW M1.5 op, and runs the deferred SDF
+# north-star scenario (mask.ellipse -> mask.to_sdf -> sdf.offset -> sdf.to_mask
+# feather chain feeding the touch-up loop) green with a passing
+# no-change-outside-mask assertion + reproducible byte-identical rerun hash.
+# This is the executable M1.5 checklist.
+m15-gate:
+    bash ci/m15-gate.sh
+
 # Run `cargo xtask verify-op` for every MVP op manifest under ops/manifests/.
 verify-ops:
     #!/usr/bin/env bash

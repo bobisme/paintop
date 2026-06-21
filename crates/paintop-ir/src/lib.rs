@@ -52,10 +52,11 @@ pub use resolve::{
 };
 pub use resource::{
     AlphaRepresentation, AssertionOutcome, AssertionSeverity, BoundaryMode, ChannelLayout,
-    ChannelStats, ColorEncoding, ColorRange, CoordinateConvention, DiffMetrics, Extent, FieldArity,
-    FieldDescriptor, HistogramData, ImageDescriptor, MaskDescriptor, MaskMeaning, Rect, Report,
-    ReportDescriptor, RequestedColorEncoding, ResourceDescriptor, ScalarType, SdfDescriptor,
-    SdfSign, SdfUnits, SemanticRole, ValidRange, VectorEncoding, VectorNormalization, VectorSpace,
+    ChannelStats, ColorEncoding, ColorRange, ComponentsData, CoordinateConvention, DiffMetrics,
+    Extent, FieldArity, FieldDescriptor, HistogramData, ImageDescriptor, LabelMapDescriptor,
+    MaskDescriptor, MaskMeaning, Rect, Report, ReportDescriptor, RequestedColorEncoding,
+    ResourceDescriptor, ScalarType, SdfDescriptor, SdfSign, SdfUnits, SemanticRole, ValidRange,
+    VectorEncoding, VectorNormalization, VectorSpace,
 };
 pub use scan::{E_DUPLICATE_KEY, E_INVALID_NUMBER, scan_json};
 pub use verify::{

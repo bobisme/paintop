@@ -178,6 +178,7 @@ fn report_resource_round_trips() {
         diff: None,
         assertion: None,
         histogram: None,
+        components: None,
     };
     let value = ResourceValue::report(report.clone());
     let out = materialize_value(&value);

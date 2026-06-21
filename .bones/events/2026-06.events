@@ -601,3 +601,11 @@
 1782007085310527	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzzgQ		item.move	bn-3bj	{"state":"done"}	blake3:fsxY4MVEbaTN0lp8AoR1WYjO4GWISyg1GyJq4fkHPxY
 1782007085314454	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzzwQ		item.move	bn-6pu	{"reason":"auto-completed: all children of bn-6pu are done","state":"done"}	blake3:asC8PXetmtsVETW7kK5ikP4gvY7u6-7NCHkmJU55hec
 1782014578133519	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAQ		item.move	bn-2qz	{"state":"done"}	blake3:55DZIPO4FHc_0MzEuq7eCXw1W8gqHgRXdouIk_FwBmE
+1782020199239978	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAQ		item.move	bn-1vk	{"state":"done"}	blake3:jA-HPShRtvbXKKJYQUe-cli_V0etEdOQhrOhC4EoGYg
+1782020199255415	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAg		item.move	bn-1zo	{"state":"doing"}	blake3:3xrm1-avJO6LPzFZEj86FVJRhEpic7lE1h8tXGXgYyY
+1782020199258302	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzAw		item.assign	bn-1zo	{"action":"assign","agent":"paintop-dev"}	blake3:1X7Dhb2avYqz3XjDF0MaaUTp-hBh4AOqzr6WMXx1W1A
+1782020380135221	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBA		item.move	bn-1zo	{"state":"done"}	blake3:xoGGBsjQXeWvCrZN18PB0MyEzUbBu0B6bfT9YVpSgTk
+1782020380662995	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBQ		item.move	bn-1v6	{"state":"doing"}	blake3:0LZbpC0jY6w1c-eFS4tlLxRqv575HZH1Ah24xWW2yY4
+1782020381259352	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBg		item.assign	bn-1v6	{"action":"assign","agent":"paintop-dev"}	blake3:eT5pbYwbCFzIQOkexO9dScMq5Cf4CNqDeve4fW1goDw
+1782020517526802	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzBw		item.move	bn-1v6	{"state":"done"}	blake3:TGznn-Q7nZYHBWVEX4Z_CYiD_UgZfjQlCirgUvJi3c4
+1782020517532736	paintop-dev	itc:v3:AWKTkkmcyckyeZEAAAAAQa6q3a6te0AAAAEzCA		item.move	bn-56s	{"reason":"auto-completed: all children of bn-56s are done","state":"done"}	blake3:L7fdAlcLKmQttDtaGw5Ih_pUQ7A5e6MHysr5nuUY-Ts

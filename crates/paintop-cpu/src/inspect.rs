@@ -134,6 +134,7 @@ pub fn inspect_value(value: &ResourceValue) -> Report {
         diff: None,
         assertion: None,
         histogram: None,
+        components: None,
     }
 }
 

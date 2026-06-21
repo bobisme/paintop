@@ -451,6 +451,10 @@ pub enum ResourceKind {
     Field3,
     /// A signed distance field.
     SdfMask,
+    /// An integer label map (`OP_CATALOG` §4): a single-channel raster of `u32`
+    /// component IDs (`0` = background). Mirrors
+    /// [`ResourceDescriptor::LabelMap`](crate::resource::ResourceDescriptor::LabelMap).
+    LabelMap,
     /// An ordered candidate set of one of the above (`IR_SPEC` §12). The element
     /// kind is carried separately by the consuming op's contract.
     CandidateSet,

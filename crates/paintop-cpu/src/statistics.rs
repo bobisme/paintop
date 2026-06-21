@@ -425,6 +425,7 @@ impl OpImplementation for Statistics {
             diff: None,
             assertion: None,
             histogram: None,
+            components: None,
         };
         Ok(single_report(report))
     }
@@ -731,6 +732,7 @@ impl OpImplementation for Histogram {
             diff: None,
             assertion: None,
             histogram: Some(histogram),
+            components: None,
         };
         Ok(single_report(report))
     }

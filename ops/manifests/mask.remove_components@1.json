@@ -1,0 +1,77 @@
+{
+  "id": "mask.remove_components@1",
+  "impl_version": 1,
+  "summary": "Remove the small foreground components of a hard mask: every connected component with a pixel area strictly below `min_area` is cleared to background. Connectivity (4 or 8) is an explicit param; `min_area` is a required non-negative integer.",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The hard mask whose below-threshold foreground components are removed."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The hard selection mask with small components cleared to background."
+    }
+  ],
+  "params": [
+    {
+      "name": "min_area",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The minimum component area in pixels: a component with fewer than `min_area` pixels is removed."
+    },
+    {
+      "name": "connectivity",
+      "type": "integer",
+      "required": false,
+      "default": 8,
+      "doc": "Pixel adjacency: 4 (orthogonal) or 8 (orthogonal + diagonal). Default 8; any other value is rejected."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "component removal is exact integer topology verified by synthetic multi-blob fixtures at threshold boundaries and 4- vs 8-connectivity; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

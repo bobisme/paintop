@@ -1,0 +1,70 @@
+{
+  "id": "mask.to_sdf@1",
+  "impl_version": 1,
+  "summary": "Convert a coverage/selection Mask to a signed distance field (SdfMask) in physical pixels via the exact Euclidean distance transform; the `negative-inside` sign convention is explicit and the contour threshold that defines the boundary (coverage >= threshold) is a required-for-soft param (default 0.5).",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage or selection mask whose `coverage >= threshold` region is the inside set of the produced field."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "sdf",
+      "kind": "SdfMask",
+      "doc": "The signed distance to the threshold contour, in physical pixels, negative inside and positive outside."
+    }
+  ],
+  "params": [
+    {
+      "name": "threshold",
+      "type": "float",
+      "required": false,
+      "default": 0.5,
+      "doc": "The contour level in [0, 1]: a pixel is inside iff its coverage is >= threshold. A soft mask has no unique SDF, so this is the explicit boundary choice; default 0.5 is the half-coverage isocontour."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "mask.to_sdf is an exact distance transform verified by analytic circle/rectangle distances, sign correctness, and a brute-force EDT differential; there is no perceptual-quality metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

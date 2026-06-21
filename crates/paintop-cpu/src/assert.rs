@@ -883,6 +883,7 @@ fn assertion_report(extent: Extent, outcome: AssertionOutcome) -> Report {
         diff: None,
         assertion: Some(outcome),
         histogram: None,
+        components: None,
     }
 }
 

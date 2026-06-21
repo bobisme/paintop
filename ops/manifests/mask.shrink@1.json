@@ -1,0 +1,77 @@
+{
+  "id": "mask.shrink@1",
+  "impl_version": 1,
+  "summary": "Shrink (erode) a mask region by a physical pixel radius. Compatibility macro: normalizes to mask.to_sdf -> sdf.offset(distance_px = -radius_px) -> sdf.to_mask (hard edge).",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage or selection mask to transform."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The shrunk coverage mask in [0, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "radius_px",
+      "type": "float",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The physical pixel radius to shrink the region by; >= 0."
+    },
+    {
+      "name": "threshold",
+      "type": "float",
+      "required": false,
+      "default": 0.5,
+      "doc": "The contour threshold forwarded to mask.to_sdf (coverage >= threshold is inside); default 0.5."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "mask.shrink is an exact macro over the EDT/SDF path verified by hash-identity with the hand-written expansion; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

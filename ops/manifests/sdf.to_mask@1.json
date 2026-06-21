@@ -1,0 +1,81 @@
+{
+  "id": "sdf.to_mask@1",
+  "impl_version": 1,
+  "summary": "Reconstruct a coverage Mask from a signed distance field with a smoothstep profile over a physical feather half-width: coverage is 1 deep inside, 0.5 on the zero contour, 0 outside the 2*half_width_px band. half_width_px = 0 is a hard step that round-trips a hard mask exactly.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "sdf",
+      "kind": "SdfMask",
+      "required": true,
+      "doc": "The signed distance field to reconstruct."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The reconstructed coverage mask in [0, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "profile",
+      "type": "string",
+      "required": false,
+      "default": "smoothstep",
+      "choices": [
+        "smoothstep"
+      ],
+      "doc": "The reconstruction profile across the feather band; only the Hermite smoothstep is supported."
+    },
+    {
+      "name": "half_width_px",
+      "type": "float",
+      "unit": "pixels",
+      "required": false,
+      "default": 0.0,
+      "doc": "Half the physical feather width in pixels; the soft edge spans 2*half_width_px centered on the zero contour. 0 is a hard step. Must be >= 0."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "sdf.to_mask is the exact closed-form clamp+smoothstep verified by the contour round-trip, a measured feather width, and the hard-step identity; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

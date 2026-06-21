@@ -1,0 +1,75 @@
+{
+  "id": "mask.connected_components@1",
+  "impl_version": 1,
+  "summary": "Label the connected foreground components of a hard mask (coverage >= 0.5) into a u32 LabelMap (0 = background) plus a report of the component count and per-label areas. Connectivity (4 or 8) is an explicit param; labels are numbered in raster-scan order of each component's first pixel (a stable, deterministic policy).",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The hard mask whose foreground (coverage >= 0.5) components are labeled."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "labels",
+      "kind": "LabelMap",
+      "doc": "The u32 label map: 0 for background, 1..=count for the raster-scan-ordered components."
+    },
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The component count, connectivity, and per-label pixel areas."
+    }
+  ],
+  "params": [
+    {
+      "name": "connectivity",
+      "type": "integer",
+      "required": false,
+      "default": 8,
+      "doc": "Pixel adjacency: 4 (orthogonal) or 8 (orthogonal + diagonal). Default 8; any other value is rejected."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "connected-component labeling is exact integer topology verified by synthetic multi-blob fixtures, 4- vs 8-connectivity counts, label stability, and large-ID round trips; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

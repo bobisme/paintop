@@ -1,0 +1,77 @@
+{
+  "id": "mask.feather@1",
+  "impl_version": 1,
+  "summary": "Feather (soften) a mask edge by a physical pixel half-width. Compatibility macro: normalizes to mask.to_sdf -> sdf.offset(0) -> sdf.to_mask(smoothstep, half_width_px).",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage or selection mask to transform."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The feathered coverage mask in [0, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "half_width_px",
+      "type": "float",
+      "unit": "pixels",
+      "required": true,
+      "doc": "Half the physical feather width in pixels; the soft edge spans 2*half_width_px centered on the contour. >= 0."
+    },
+    {
+      "name": "threshold",
+      "type": "float",
+      "required": false,
+      "default": 0.5,
+      "doc": "The contour threshold forwarded to mask.to_sdf (coverage >= threshold is inside); default 0.5."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "mask.feather is an exact macro over the EDT/SDF path verified by hash-identity with the hand-written expansion and a measured feather width; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

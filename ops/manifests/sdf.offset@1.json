@@ -1,0 +1,70 @@
+{
+  "id": "sdf.offset@1",
+  "impl_version": 1,
+  "summary": "Grow or shrink a signed distance field by a signed physical distance: phi' = phi - distance_px. Positive distance grows the (negative-inside) region, negative shrinks it; the field stays a valid distance field away from new medial axes and the op composes exactly.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "sdf",
+      "kind": "SdfMask",
+      "required": true,
+      "doc": "The signed distance field to offset."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "sdf",
+      "kind": "SdfMask",
+      "doc": "The offset field phi - distance_px (same extent and sign convention)."
+    }
+  ],
+  "params": [
+    {
+      "name": "distance_px",
+      "type": "float",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The signed physical pixel distance to offset by; positive grows the region, negative shrinks it."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "sdf.offset is the exact closed-form phi - d verified by the composition law, the zero-distance identity, and infinity preservation; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

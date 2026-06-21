@@ -661,6 +661,28 @@ pub struct SdfDescriptor {
     pub coordinates: CoordinateConvention,
 }
 
+/// An integer label-map descriptor (`OP_CATALOG` §4): a single-channel raster of
+/// `u32` component IDs.
+///
+/// A label map is the output of connected-component labeling: every pixel carries
+/// the integer ID of the component it belongs to, with `0` reserved for the
+/// background (no component). Unlike a [`MaskDescriptor`] its samples are exact
+/// integers, not fractional coverage, so its scalar type is always
+/// [`ScalarType::U32`]; the run-time value stores each ID losslessly (the `f32`
+/// sample buffer holds the raw `u32` bit pattern via
+/// [`f32::from_bits`]/[`f32::to_bits`], so IDs above `2^24` survive a round trip
+/// — `AGENT_VERIFICATION` §2.3 "integer attachment/encoding loss").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LabelMapDescriptor {
+    /// Pixel extent.
+    pub extent: Extent,
+    /// Scalar storage type; always [`ScalarType::U32`] for an integer label map.
+    pub scalar: ScalarType,
+    /// Coordinate convention.
+    pub coordinates: CoordinateConvention,
+}
+
 /// The type-level descriptor of a [`Report`] resource (`OP_CATALOG` §1).
 ///
 /// A report carries no raster, so its descriptor records only the shape of the
@@ -962,6 +984,33 @@ pub struct Report {
     /// every other report, so it is omitted on serialization.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub histogram: Option<HistogramData>,
+    /// The connected-component summary, present only on the report a labeling op
+    /// (`mask.connected_components@1`) produces (`OP_CATALOG` §4). Absent (`None`)
+    /// for every other report, so it is omitted on serialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub components: Option<ComponentsData>,
+}
+
+/// The connected-component summary a labeling op (`mask.connected_components@1`)
+/// attaches to its [`Report`] (`OP_CATALOG` §4).
+///
+/// `count` is the number of foreground components found (each labeled with an ID
+/// in `1..=count`; `0` is the background). `areas` carries the pixel area of each
+/// component in **label order** (`areas[i]` is the area of component `i + 1`), so
+/// a consumer can apply a size policy without re-scanning the label map. The
+/// labeling is deterministic: components are numbered in raster-scan order of
+/// their first (top-most, then left-most) pixel, the stable policy this op
+/// guarantees.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentsData {
+    /// The pixel connectivity used to define adjacency (`4` or `8`).
+    pub connectivity: u8,
+    /// The number of foreground components (labels `1..=count`).
+    pub count: u32,
+    /// The pixel area of each component in label order (`areas[i]` is label
+    /// `i + 1`), length `count`.
+    pub areas: Vec<u64>,
 }
 
 impl Report {
@@ -996,6 +1045,8 @@ pub enum ResourceDescriptor {
     Field3(FieldDescriptor),
     /// A signed distance field.
     SdfMask(SdfDescriptor),
+    /// An integer label map of `u32` component IDs.
+    LabelMap(LabelMapDescriptor),
     /// A structured analysis report (carries no raster).
     Report(ReportDescriptor),
 }
@@ -1009,6 +1060,7 @@ impl ResourceDescriptor {
             Self::Mask(d) => d.extent,
             Self::Field1(d) | Self::Field2(d) | Self::Field3(d) => d.extent,
             Self::SdfMask(d) => d.extent,
+            Self::LabelMap(d) => d.extent,
             Self::Report(d) => d.extent,
         }
     }
@@ -1030,6 +1082,7 @@ impl ResourceDescriptor {
             Self::Field2(_) => ResourceKind::Field2,
             Self::Field3(_) => ResourceKind::Field3,
             Self::SdfMask(_) => ResourceKind::SdfMask,
+            Self::LabelMap(_) => ResourceKind::LabelMap,
             Self::Report(_) => ResourceKind::Report,
         }
     }
@@ -1174,6 +1227,43 @@ mod tests {
         let back: MaskDescriptor =
             serde_json::from_value(serde_json::to_value(d).unwrap()).unwrap();
         assert_eq!(back, d);
+    }
+
+    #[test]
+    fn label_map_descriptor_round_trips_and_reports_kind() {
+        use super::{LabelMapDescriptor, ResourceDescriptor};
+        use crate::manifest::ResourceKind;
+        let d = LabelMapDescriptor {
+            extent: Extent::new(64, 48),
+            scalar: ScalarType::U32,
+            coordinates: CoordinateConvention::PixelCenterUpperLeft,
+        };
+        let back: LabelMapDescriptor =
+            serde_json::from_value(serde_json::to_value(d).unwrap()).unwrap();
+        assert_eq!(back, d);
+
+        // The descriptor tag round-trips and reports the LabelMap kind/extent.
+        let resource = ResourceDescriptor::LabelMap(d);
+        assert_eq!(resource.kind(), ResourceKind::LabelMap);
+        assert_eq!(resource.extent(), Extent::new(64, 48));
+        let json = serde_json::to_value(resource).unwrap();
+        assert_eq!(json["kind"], json!("LabelMap"));
+        let recovered: ResourceDescriptor = serde_json::from_value(json).unwrap();
+        assert_eq!(recovered, resource);
+    }
+
+    #[test]
+    fn components_data_round_trips_with_large_areas() {
+        use super::ComponentsData;
+        // Areas span past 2^24 to exercise integer fidelity through serde.
+        let data = ComponentsData {
+            connectivity: 8,
+            count: 3,
+            areas: vec![1, 16_777_217, u64::from(u32::MAX) + 7],
+        };
+        let back: ComponentsData =
+            serde_json::from_value(serde_json::to_value(&data).unwrap()).unwrap();
+        assert_eq!(back, data);
     }
 
     #[test]

@@ -850,6 +850,7 @@ dependencies = [
  "paintop-testkit",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]

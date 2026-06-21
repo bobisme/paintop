@@ -1,0 +1,67 @@
+{
+  "id": "sdf.union@1",
+  "impl_version": 1,
+  "summary": "Union (CSG join) of two signed distance fields: phi = min(phi_a, phi_b). The zero contour is the union of the operands' inside sets; exact away from new medial axes.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "a",
+      "kind": "SdfMask",
+      "required": true,
+      "doc": "The left-hand signed distance field."
+    },
+    {
+      "name": "b",
+      "kind": "SdfMask",
+      "required": true,
+      "doc": "The right-hand signed distance field (same extent as `a`)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "sdf",
+      "kind": "SdfMask",
+      "doc": "The union field min(phi_a, phi_b) (negative-inside)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "sdf.union is the exact closed-form min verified by zero-contour agreement with the hard-mask union, commutativity, and gradient-norm preservation; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

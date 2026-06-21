@@ -17,7 +17,8 @@ conformance/
 │   ├── blemish.json           the M0 keystone plan: the 14-op non-SDF loop
 │   ├── blemish-leak.json      its negative variant: MUST fail with exit 6
 │   ├── banner.json            the M1 scenario: gradient + blur + polygon composite
-│   └── banner-leak.json       its negative variant: MUST fail with exit 6
+│   ├── banner-leak.json       its negative variant: MUST fail with exit 6
+│   └── blemish-sdf.json       the M1.5 SDF north-star: ellipse → to_sdf → offset → to_mask feather chain
 └── out/                       io.encode_image sink (gitignored, regenerated)
 ```
 
@@ -59,6 +60,35 @@ The M1 exit gate is the executable script `ci/m1-gate.sh` (`just m1-gate`): it
 runs `just check`, asserts `op list` exposes the full `OP_CATALOG` §18 P0 set
 (each with a manifest), runs `verify-op` for every P0 op, and drives this banner
 scenario through its green run, reproducible rerun, and leaking variant.
+
+## The M1.5 SDF north-star: "an agent edits a blemish, authorizing through SDF"
+
+`plans/blemish-sdf.json` is the **original SDF north-star variant** the M0
+decision deferred (`M0_DECISIONS` D1 "SDF lands second"; `plan.md` §25;
+`OP_CATALOG` §4; `ALIEN_OPS` §2). It is the identical touch-up loop to the
+blemish keystone, except the authorized region is built through the **signed
+distance feather chain** instead of an analytic soft ellipse:
+
+```
+mask.ellipse   (hard)      a hard ellipse coverage mask
+mask.to_sdf                exact Euclidean SDF, negative-inside (IR_SPEC §7.4)   [NEW]
+sdf.offset     (+3 px)     grow the region by a physical pixel offset            [NEW]
+sdf.to_mask    (smoothstep, half_width 6 px)  reconstruct the feathered mask     [NEW]
+```
+
+That SDF-derived mask is the **single authorization boundary** feeding both
+`composite.masked_replace` and `assert.no_change_outside_mask`. Running it proves
+the deferred chain works end-to-end: the loop runs to exit 0 with a passing
+no-change-outside-mask localization assertion (zero pixels changed outside the
+SDF-authorized region) and a byte-identical, hash-stable rerun. These behaviours
+are asserted by `crates/paintop-cpu/tests/sdf_northstar_conformance.rs`.
+
+The M1.5 exit gate is the executable script `ci/m15-gate.sh` (`just m15-gate`):
+it runs `just check`, asserts `op list` exposes the full M1.5 SDF + topology op
+set (each with a manifest), runs `verify-op` for every new M1.5 op, and drives
+this SDF north-star scenario through its green run and reproducible rerun. The
+EDT brute-force differential, offset-composition, and boolean SDF law property
+suites run inside `just check`.
 
 ## What the plan does
 

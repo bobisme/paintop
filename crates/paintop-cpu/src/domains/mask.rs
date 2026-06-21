@@ -11,7 +11,10 @@ use crate::ellipse::{self, EllipseMask};
 use crate::mask::{self, EmptyMask, FullMask, RectMask};
 use crate::mask_algebra::{self, BinaryMaskOp, InvertMask};
 use crate::mask_bounds::{self, MaskBounds};
+use crate::mask_macros::{self, MaskMacro};
 use crate::mask_polygon::{self, PolygonMask};
+use crate::mask_to_sdf::MaskToSdf;
+use crate::mask_topology::{self, ConnectedComponents, FillHoles, RemoveComponents};
 
 /// Register every `mask.*` manifest and implementation, in fixed declaration
 /// order.
@@ -62,6 +65,48 @@ pub(crate) fn register(reg: &mut OperationRegistry, impls: &mut ImplRegistry) ->
     impls.register(
         mask_algebra::SUBTRACT_OP_ID.parse()?,
         Box::new(BinaryMaskOp::subtract()),
+    )?;
+
+    reg.register(MaskToSdf::manifest()?)?;
+    impls.register(
+        crate::mask_to_sdf::OP_ID.parse()?,
+        Box::new(MaskToSdf::new()),
+    )?;
+
+    reg.register(ConnectedComponents::manifest()?)?;
+    impls.register(
+        mask_topology::CONNECTED_COMPONENTS_OP_ID.parse()?,
+        Box::new(ConnectedComponents::new()),
+    )?;
+
+    reg.register(FillHoles::manifest()?)?;
+    impls.register(
+        mask_topology::FILL_HOLES_OP_ID.parse()?,
+        Box::new(FillHoles::new()),
+    )?;
+
+    reg.register(RemoveComponents::manifest()?)?;
+    impls.register(
+        mask_topology::REMOVE_COMPONENTS_OP_ID.parse()?,
+        Box::new(RemoveComponents::new()),
+    )?;
+
+    reg.register(MaskMacro::feather_manifest()?)?;
+    impls.register(
+        mask_macros::FEATHER_OP_ID.parse()?,
+        Box::new(MaskMacro::feather()),
+    )?;
+
+    reg.register(MaskMacro::grow_manifest()?)?;
+    impls.register(
+        mask_macros::GROW_OP_ID.parse()?,
+        Box::new(MaskMacro::grow()),
+    )?;
+
+    reg.register(MaskMacro::shrink_manifest()?)?;
+    impls.register(
+        mask_macros::SHRINK_OP_ID.parse()?,
+        Box::new(MaskMacro::shrink()),
     )?;
 
     reg.register(BinaryMaskOp::union_manifest()?)?;

@@ -1,0 +1,70 @@
+{
+  "id": "mask.fill_holes@1",
+  "impl_version": 1,
+  "summary": "Fill the enclosed holes of a hard mask: every background pixel (coverage < 0.5) that is NOT connected to the image border becomes foreground. Border-connected background is left untouched. Connectivity of the background flood is an explicit param (4 or 8).",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The hard mask whose non-border-connected background holes are filled."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The hard selection mask with enclosed holes filled to foreground."
+    }
+  ],
+  "params": [
+    {
+      "name": "connectivity",
+      "type": "integer",
+      "required": false,
+      "default": 8,
+      "doc": "Pixel adjacency: 4 (orthogonal) or 8 (orthogonal + diagonal). Default 8; any other value is rejected."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "hole filling is exact integer topology verified by synthetic ring/hole fixtures, the border-connected definition, and 4- vs 8-connectivity; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

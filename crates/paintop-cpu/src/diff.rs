@@ -372,6 +372,7 @@ fn diff_report(samples: &[f32], extent: Extent, channels: u32, threshold: f64) -
         diff: Some(diff_metrics(samples, extent, channels, threshold)),
         assertion: None,
         histogram: None,
+        components: None,
     }
 }
 
