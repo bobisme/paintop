@@ -1,0 +1,110 @@
+{
+  "id": "assert.no_change_outside_mask@1",
+  "impl_version": 1,
+  "summary": "Assert that an edit changed nothing outside an allowed coverage mask: every pixel outside the mask must change by no more than outside_threshold in the chosen comparison space. A leak fails the assertion and records the worst leaking pixel, the leaking-pixel count, and the maximum outside delta.",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "before",
+      "kind": "Image",
+      "required": true,
+      "doc": "The reference image the edit is measured against."
+    },
+    {
+      "name": "after",
+      "kind": "Image",
+      "required": true,
+      "doc": "The edited image whose change from `before` is checked."
+    },
+    {
+      "name": "allowed",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage mask of the region the edit is authorized to change."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The assertion verdict: pass/fail plus the outside metrics (max delta, leaking-pixel count, worst pixel, locations)."
+    }
+  ],
+  "params": [
+    {
+      "name": "comparison_space",
+      "type": "string",
+      "required": false,
+      "default": "decoded-linear",
+      "choices": [
+        "encoded",
+        "decoded-linear"
+      ],
+      "doc": "The space the pair is compared in: `encoded` (stored samples) or `decoded-linear` (sRGB-decoded to linear light first)."
+    },
+    {
+      "name": "outside_threshold",
+      "type": "float",
+      "unit": "ratio",
+      "required": false,
+      "default": 0.0,
+      "doc": "The absolute delta a pixel outside the mask must strictly exceed to count as a leak."
+    },
+    {
+      "name": "coverage_epsilon",
+      "type": "float",
+      "unit": "ratio",
+      "required": false,
+      "default": 0.0,
+      "doc": "The maximum mask coverage at which a pixel still counts as `outside` (defaults to 0: only fully-uncovered pixels are outside)."
+    },
+    {
+      "name": "severity",
+      "type": "string",
+      "required": false,
+      "default": "error",
+      "choices": [
+        "error",
+        "warning",
+        "metric"
+      ],
+      "doc": "How a violation affects the run: `error` fails the run, `warning` marks the evidence, `metric` never fails."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

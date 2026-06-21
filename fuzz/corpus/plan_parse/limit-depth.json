@@ -1,0 +1,14 @@
+{
+  "paintop": "1.0",
+  "inputs": {},
+  "nodes": [
+    {
+      "id": "deep",
+      "op": "debug.identity@1",
+      "params": {
+        "a": {"b": {"c": {"d": {"e": {"f": {"g": {"h": 1}}}}}}}
+      }
+    }
+  ],
+  "exports": {}
+}

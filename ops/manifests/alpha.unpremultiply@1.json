@@ -1,0 +1,61 @@
+{
+  "id": "alpha.unpremultiply@1",
+  "impl_version": 1,
+  "summary": "Unpremultiply a premultiplied linear color image (C = C' / alpha where alpha > eps); alpha passes through. Rejected on nonlinear (srgb) input.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The linear-light color image with an alpha channel."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The image with its alpha representation flipped (same extent/layout)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "alpha.unpremultiply is a closed-form per-channel divide by coverage with an explicit near-zero-alpha policy, verified by an analytic round-trip and a hidden-RGB fringe fixture; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

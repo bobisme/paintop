@@ -31,6 +31,16 @@ impl CommandOutcome {
         }
     }
 
+    /// An outcome carrying `value` and an explicit `exit_code`.
+    ///
+    /// Used by `run` to surface a completed run whose terminal status maps to a
+    /// non-zero §15.4 class (e.g. a failed `error`-severity assertion → `6`)
+    /// without treating it as an internal tool error.
+    #[must_use]
+    pub const fn with_exit_code(value: serde_json::Value, exit_code: i32) -> Self {
+        Self { value, exit_code }
+    }
+
     /// A failure outcome built from a paintop [`Error`]: the §19 error envelope
     /// on stdout and the class's stable §15.4 exit code.
     #[must_use]

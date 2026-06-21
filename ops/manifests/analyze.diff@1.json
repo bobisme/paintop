@@ -1,0 +1,89 @@
+{
+  "id": "analyze.diff@1",
+  "impl_version": 1,
+  "summary": "Difference a before and after image into a per-pixel absolute-difference field and a report (max / mean / RMS error, changed-pixel count and bounds) in an explicit comparison space (encoded or decoded-linear). Identical inputs yield a zero diff with empty changed bounds.",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "before",
+      "kind": "Image",
+      "required": true,
+      "doc": "The reference image the change is measured against."
+    },
+    {
+      "name": "after",
+      "kind": "Image",
+      "required": true,
+      "doc": "The edited image whose change from `before` is measured."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "diff",
+      "kind": "Image",
+      "doc": "The per-pixel, per-channel absolute-difference field |after − before| (the evidence heatmap), retyped raw-linear material."
+    },
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The difference report: per-channel stats plus max / mean / RMS error, changed-pixel count and bounds."
+    }
+  ],
+  "params": [
+    {
+      "name": "comparison_space",
+      "type": "string",
+      "required": false,
+      "default": "decoded-linear",
+      "choices": [
+        "encoded",
+        "decoded-linear"
+      ],
+      "doc": "The space the pair is compared in: `encoded` (stored samples) or `decoded-linear` (sRGB-decoded to linear light first)."
+    },
+    {
+      "name": "threshold",
+      "type": "float",
+      "unit": "ratio",
+      "required": false,
+      "default": 0.0,
+      "doc": "The absolute error a pixel must strictly exceed to count as changed (drives changed_count / changed_bounds)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

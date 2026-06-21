@@ -17,15 +17,25 @@ The project is aimed at coding agents and automation systems that need to edit i
 
 ## Current Status
 
-This repository is currently in early planning and backlog setup. The implementation workspace is not scaffolded yet. The canonical plan and operation backlog live under:
+The M0 milestone plus the non-SDF MVP touch-up loop is implemented: a strict
+plan parser and contracts, 14 operation manifests, canonicalization and BLAKE3
+hashing, the evidence-bundle writer, a deterministic fixture, the `paintop` CLI
+(`validate` / `run` / `explain` / `graph` / `diff` / `op`), the `cargo xtask
+verify-op` runner, and the end-to-end keystone conformance loop.
+
+- **Run the loop:** `docs/M0_LOOP.md` — author → run → diagnose → reproduce, plus
+  the fresh-clone walkthrough and the M0/M1 exit-criteria checklist.
+- **The keystone scenario:** `conformance/README.md`.
+- **Quality gates:** `just check` (Layer-0 hygiene) and `just m0-gate` (the full
+  `plan.md` §19 M0 exit criteria); both run in CI (`.github/workflows/ci.yml`).
+
+The canonical plan and operation backlog live under:
 
 - `notes/paintop-plan/plan.md`
 - `notes/paintop-plan/M0_DECISIONS.md`
 - `notes/paintop-plan/docs/IR_SPEC.md`
 - `notes/paintop-plan/docs/AGENT_VERIFICATION.md`
 - `notes/paintop-plan/docs/OP_CATALOG.md`
-
-The first build milestone is M0 plus the non-SDF MVP touch-up loop: strict parser and contracts, operation manifests, canonicalization and hashing, evidence skeletons, fixture generation, CLI commands, and a small verified operation set for a reproducible localized edit.
 
 ## Intended CLI Shape
 
@@ -41,7 +51,8 @@ paintop op list
 paintop op schema paint.gaussian_splats@1
 ```
 
-Until the Rust workspace lands, these commands are design targets rather than runnable tools.
+These are runnable today via `cargo run -p paintop-cli -- <args>` (or the
+installed `paintop` binary after `just install`). See `docs/M0_LOOP.md`.
 
 ## Development Workflow
 

@@ -14,7 +14,7 @@
 //! scalar type is sufficient for the MVP ops (segment 2) and for the stub/identity
 //! ops this bone tests; richer storage is a later concern.
 
-use paintop_ir::{Extent, ResourceDescriptor};
+use paintop_ir::{Extent, Report, ResourceDescriptor};
 
 /// A concrete whole-image resource value: a typed descriptor and its row-major
 /// `f32` sample buffer.
@@ -23,11 +23,17 @@ use paintop_ir::{Extent, ResourceDescriptor};
 /// row-major, channel-interleaved order. The descriptor is the authority on the
 /// channel count, so [`ResourceValue::new`] validates the buffer length against
 /// it and refuses a mismatch.
+///
+/// A [`Report`] resource (`OP_CATALOG` §1) carries no raster;
+/// it is wrapped with [`ResourceValue::report`], which stores the structured
+/// report and leaves the sample buffer empty. [`as_report`](ResourceValue::as_report)
+/// recovers it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceValue {
     descriptor: ResourceDescriptor,
     channels: u32,
     samples: Vec<f32>,
+    report: Option<Report>,
 }
 
 impl ResourceValue {
@@ -52,10 +58,33 @@ impl ResourceValue {
                 descriptor,
                 channels,
                 samples,
+                report: None,
             })
         } else {
             Err(samples.len())
         }
+    }
+
+    /// Wrap a structured [`Report`] (`OP_CATALOG` §1) as a resource value.
+    ///
+    /// A report carries no raster, so the descriptor is the report's
+    /// [`ReportDescriptor`](paintop_ir::ReportDescriptor), the channel count is
+    /// `0`, and the sample buffer is empty. The structured report is recoverable
+    /// via [`as_report`](Self::as_report).
+    #[must_use]
+    pub const fn report(report: Report) -> Self {
+        Self {
+            descriptor: ResourceDescriptor::Report(report.descriptor()),
+            channels: 0,
+            samples: Vec::new(),
+            report: Some(report),
+        }
+    }
+
+    /// The structured [`Report`] this value carries, if it is a report resource.
+    #[must_use]
+    pub const fn as_report(&self) -> Option<&Report> {
+        self.report.as_ref()
     }
 
     /// The resource's typed descriptor.

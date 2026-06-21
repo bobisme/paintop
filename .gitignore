@@ -5,3 +5,15 @@
 
 # Rust build artifacts
 /target/
+
+# Conformance run outputs (the io.encode_image sink). The input fixtures under
+# conformance/fixtures/ and the plans under conformance/plans/ are tracked; the
+# encoded run outputs are regenerated and not.
+/conformance/out/
+
+# cargo-fuzz build output and crash artifacts (the checked-in seed corpus under
+# fuzz/corpus/ is kept; campaign-discovered crashes/coverage are not tracked).
+/fuzz/target/
+/fuzz/artifacts/
+/fuzz/coverage/
+/fuzz/Cargo.lock

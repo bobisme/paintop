@@ -11,6 +11,13 @@ rust-version.workspace = true
 paintop-ir.workspace = true
 paintop-image.workspace = true
 paintop-core.workspace = true
+serde_json = { workspace = true }
+# Image codecs only (PNG decode/encode); decoded bytes are converted into
+# paintop resource types immediately (plan.md §17.2, M0_DECISIONS).
+image = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
 
 [lints]
 workspace = true

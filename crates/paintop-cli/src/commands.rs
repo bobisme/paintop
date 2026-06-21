@@ -12,7 +12,6 @@ use paintop_ir::{
 };
 
 use crate::output::{CommandOutcome, io_error, log};
-use crate::stub_ops;
 
 /// Read a plan file and parse it through the strict IR parser.
 ///
@@ -59,7 +58,7 @@ pub fn validate(plan_path: &Path) -> CommandOutcome {
 }
 
 fn validate_inner(plan_path: &Path) -> Result<serde_json::Value, Error> {
-    let registry = stub_ops::registry()?;
+    let registry = paintop_cpu::registry::operation_registry()?;
     let (_text, plan) = load_plan(plan_path)?;
     let graph = resolve_and_check(&plan, &registry)?;
     Ok(serde_json::json!({
@@ -85,7 +84,7 @@ pub fn explain(plan_path: &Path) -> CommandOutcome {
 }
 
 fn explain_inner(plan_path: &Path) -> Result<serde_json::Value, Error> {
-    let registry = stub_ops::registry()?;
+    let registry = paintop_cpu::registry::operation_registry()?;
     let (_text, plan) = load_plan(plan_path)?;
     let graph = resolve_and_check(&plan, &registry)?;
     let hash = semantic_hash(&plan)?;
@@ -115,41 +114,39 @@ fn explain_inner(plan_path: &Path) -> Result<serde_json::Value, Error> {
     }))
 }
 
-/// `paintop run <plan> [--bundle <dir>]`: resolve, check, and (in M0) report the
-/// run plan without executing real ops.
+/// `paintop run <plan> [--bundle <dir>]`: resolve, execute the MVP op graph
+/// whole-image, evaluate assertions, and write a complete evidence bundle.
 ///
-/// The MVP operation backends land in segment 2; until they do, `run` validates
-/// the plan end-to-end and reports the demanded execution order so an agent can
-/// see exactly what *would* run. The bundle path is recorded but not yet
-/// materialized.
+/// Without `--bundle` the run still executes but writes its bundle to a default
+/// `run/` directory beside the invocation, so an agent always gets evidence. A
+/// failed assertion is a *successful run of the tool* that reports a non-zero
+/// exit class (`6`) — the CLI surfaces the run status and exit code in the
+/// outcome rather than treating it as an internal error.
 #[must_use]
 pub fn run(plan_path: &Path, bundle: Option<&Path>) -> CommandOutcome {
     log(&format!("run: {}", plan_path.display()));
-    match run_inner(plan_path, bundle) {
-        Ok(value) => CommandOutcome::success(value),
+    let bundle_dir = bundle.unwrap_or_else(|| Path::new("run"));
+    match paintop_cpu::pipeline::run_plan(plan_path, bundle_dir) {
+        Ok(outcome) => {
+            let value = serde_json::json!({
+                "ok": outcome.ok(),
+                "executed": true,
+                "status": serde_json::to_value(outcome.status).unwrap_or(serde_json::Value::Null),
+                "exit_code": outcome.exit_code,
+                "bundle": outcome.bundle.display().to_string(),
+                "plan_semantic_hash": outcome.plan_semantic_hash,
+                "output_content_hash": outcome.output_content_hash,
+                "failures": outcome.failures,
+            });
+            // A failed assertion is reported with its stable exit class, not as a
+            // tool error, so the JSON-on-stdout contract is preserved.
+            CommandOutcome::with_exit_code(value, outcome.exit_code)
+        }
         Err(error) => {
             log(&format!("run failed: {error}"));
             CommandOutcome::failure(&error)
         }
     }
-}
-
-fn run_inner(plan_path: &Path, bundle: Option<&Path>) -> Result<serde_json::Value, Error> {
-    let registry = stub_ops::registry()?;
-    let (_text, plan) = load_plan(plan_path)?;
-    let graph = resolve_and_check(&plan, &registry)?;
-    let order: Vec<&str> = graph
-        .topological_order()
-        .iter()
-        .map(String::as_str)
-        .collect();
-    Ok(serde_json::json!({
-        "ok": true,
-        "executed": false,
-        "reason": "MVP op backends arrive in segment 2; M0 run reports the planned order only",
-        "order": order,
-        "bundle": bundle.map(|p| p.display().to_string()),
-    }))
 }
 
 /// `paintop graph <plan> --out <file>`: write the plan's dependency graph as DOT.
@@ -170,7 +167,7 @@ pub fn graph(plan_path: &Path, out: &Path) -> CommandOutcome {
 }
 
 fn graph_inner(plan_path: &Path, out: &Path) -> Result<serde_json::Value, Error> {
-    let registry = stub_ops::registry()?;
+    let registry = paintop_cpu::registry::operation_registry()?;
     let (_text, plan) = load_plan(plan_path)?;
     let graph = resolve_and_check(&plan, &registry)?;
     let dot = render_dot(&graph);
@@ -250,7 +247,7 @@ pub fn op_list() -> CommandOutcome {
 }
 
 fn op_list_inner() -> Result<serde_json::Value, Error> {
-    let registry = stub_ops::registry()?;
+    let registry = paintop_cpu::registry::operation_registry()?;
     let ops: Vec<serde_json::Value> = registry
         .iter()
         .map(|m| {
@@ -282,8 +279,8 @@ pub fn op_schema(id: &str) -> CommandOutcome {
 }
 
 fn op_schema_inner(id: &str) -> Result<serde_json::Value, Error> {
-    let registry = stub_ops::registry()?;
-    let op_id = stub_ops::parse_op_id(id)?;
+    let registry = paintop_cpu::registry::operation_registry()?;
+    let op_id: paintop_ir::OpId = id.parse()?;
     let manifest = registry.get(&op_id)?;
     let manifest_value = serde_json::to_value(manifest).map_err(|err| {
         Error::new(

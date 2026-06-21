@@ -1,0 +1,49 @@
+# cargo-fuzz harness crate for paintop (plan.md §19 M0; AGENT_VERIFICATION §2.1/§2.2).
+#
+# This package is DELIBERATELY detached from the workspace: the empty
+# `[workspace]` table below makes `fuzz/` its own workspace root, so the
+# repository's `just check` (fmt + the pedantic/nursery/unwrap lint wall + tests
+# + docs) never compiles these libFuzzer targets. Fuzzing is a bounded
+# smoke/nightly gate (`just fuzz-smoke`), not part of every local check.
+[package]
+name = "paintop-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Detach from the parent workspace so the lint wall / `just check` ignore us.
+[workspace]
+
+[dependencies]
+# libFuzzer driver + `Arbitrary` derive support.
+libfuzzer-sys = "0.4"
+
+# The real public surfaces under test — no bespoke harness, the fuzzers call the
+# same hardened entry points the CLI and executor use.
+paintop-ir = { path = "../crates/paintop-ir" }
+paintop-cpu = { path = "../crates/paintop-cpu" }
+
+[[bin]]
+name = "plan_parse"
+path = "fuzz_targets/plan_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "png_decode"
+path = "fuzz_targets/png_decode.rs"
+test = false
+doc = false
+bench = false
+
+# libFuzzer needs debug assertions + overflow checks on in release-shaped builds
+# so arithmetic/UB-ish bugs trip rather than wrap silently.
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true

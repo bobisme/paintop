@@ -12,12 +12,11 @@
 mod cli;
 mod commands;
 mod output;
-mod stub_ops;
 
-// Keep the §6.1-legal crate edges live: the CLI may read core/cpu, which read
-// the IR. Concrete use arrives as the executor wiring lands in segment 2.
+// Keep the §6.1-legal crate edge live: the CLI may read core, which reads the
+// IR. `paintop_cpu` is used directly by [`commands`] for the real op registry
+// and pipeline.
 use paintop_core as _;
-use paintop_cpu as _;
 
 use clap::Parser;
 

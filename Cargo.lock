@@ -843,9 +843,12 @@ dependencies = [
 name = "paintop-cpu"
 version = "0.0.0"
 dependencies = [
+ "image",
  "paintop-core",
  "paintop-image",
  "paintop-ir",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

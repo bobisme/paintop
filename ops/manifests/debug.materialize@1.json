@@ -1,0 +1,57 @@
+{
+  "id": "debug.materialize@1",
+  "impl_version": 1,
+  "summary": "Materialization barrier: pass a resource through bit-identically (the identity) so the runtime materializes the intermediate and the evidence bundle can capture it, without changing any downstream value or hash.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "resource",
+      "kind": "Image",
+      "required": true,
+      "doc": "The resource to materialize. It is passed through unchanged."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "resource",
+      "kind": "Image",
+      "doc": "The input resource, bit-identical: same descriptor and same samples."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

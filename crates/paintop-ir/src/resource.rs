@@ -661,11 +661,221 @@ pub struct SdfDescriptor {
     pub coordinates: CoordinateConvention,
 }
 
+/// The type-level descriptor of a [`Report`] resource (`OP_CATALOG` §1).
+///
+/// A report carries no raster, so its descriptor records only the shape of the
+/// resource it summarizes: the source extent and channel count. The statistical
+/// payload (ranges, finite stats, content hash) is the resource *value*
+/// ([`Report`]), produced at execution rather than inferred from metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReportDescriptor {
+    /// The pixel extent of the summarized resource.
+    pub extent: Extent,
+    /// The channel count of the summarized resource.
+    pub channels: u32,
+}
+
+/// Per-channel statistics carried by a [`Report`] (`OP_CATALOG` §1).
+///
+/// All extrema and the sum are computed over the channel's **finite** samples
+/// only; `NaN`/`±∞` samples are excluded from the range and counted in
+/// [`nonfinite`](ChannelStats::nonfinite) instead, so a single bad sample cannot
+/// poison the reported range while still being flagged.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelStats {
+    /// The minimum finite sample, or `None` if the channel has no finite sample.
+    pub min: Option<f32>,
+    /// The maximum finite sample, or `None` if the channel has no finite sample.
+    pub max: Option<f32>,
+    /// The sum of the finite samples (used to derive the mean).
+    pub sum: f64,
+    /// The number of finite samples.
+    pub finite: u64,
+    /// The number of non-finite (`NaN`/`±∞`) samples.
+    pub nonfinite: u64,
+}
+
+impl ChannelStats {
+    /// The arithmetic mean of the finite samples, or `None` if there are none.
+    #[must_use]
+    pub fn mean(&self) -> Option<f64> {
+        if self.finite == 0 {
+            None
+        } else {
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "finite is a sample count; f64 mantissa covers realistic image sizes"
+            )]
+            let denom = self.finite as f64;
+            Some(self.sum / denom)
+        }
+    }
+
+    /// Whether every sample in the channel is finite.
+    #[must_use]
+    pub const fn all_finite(&self) -> bool {
+        self.nonfinite == 0
+    }
+}
+
+/// The whole-image difference summary a difference op (`analyze.diff@1`)
+/// attaches to its [`Report`] (`OP_CATALOG` §12, `AGENT_VERIFICATION` §2.6).
+///
+/// The metrics are reductions over the per-pixel, per-channel **absolute**
+/// difference field `|after − before|` computed in the op's declared comparison
+/// space. Identical inputs produce all-zero metrics and an empty
+/// [`changed_bounds`](DiffMetrics::changed_bounds); a known injected delta
+/// produces exact metrics. Errors above [`threshold`](DiffMetrics::threshold)
+/// define the *changed* pixels whose count and bounding box are reported.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiffMetrics {
+    /// The maximum absolute difference across every channel and pixel.
+    pub max_abs_error: f64,
+    /// The mean absolute difference across every channel and pixel.
+    pub mean_abs_error: f64,
+    /// The root-mean-square difference across every channel and pixel.
+    pub rms_error: f64,
+    /// The error threshold a pixel must exceed (strictly) to count as *changed*.
+    pub threshold: f64,
+    /// The number of *changed* pixels: pixels with at least one channel whose
+    /// absolute difference exceeds [`threshold`](Self::threshold).
+    pub changed_count: u64,
+    /// The tight bounding box of the changed pixels in pixel space, or `None`
+    /// when no pixel changed (an empty diff).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_bounds: Option<Rect>,
+}
+
+/// The severity of an assertion's verdict (`IR_SPEC` §13).
+///
+/// Severity governs how an assertion's failure affects the run, and is *explicit*
+/// rather than implied by the assertion kind: an `error` fails the run (exit
+/// class 6), a `warning` retains the output but marks the evidence, and a
+/// `metric` never fails the run — it only records the measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum AssertionSeverity {
+    /// A failure fails the run (maps to exit class 6).
+    Error,
+    /// A failure retains the output but marks the evidence as suspect.
+    Warning,
+    /// A measurement only: a failure never fails the run.
+    Metric,
+}
+
+impl AssertionSeverity {
+    /// Whether a *failure* at this severity should fail the run.
+    ///
+    /// Only [`Error`](Self::Error) fails the run; [`Warning`](Self::Warning) and
+    /// [`Metric`](Self::Metric) record the verdict without failing it.
+    #[must_use]
+    pub const fn fails_run(self) -> bool {
+        matches!(self, Self::Error)
+    }
+}
+
+/// The structured verdict an assertion operation attaches to its [`Report`]
+/// (`IR_SPEC` §13, `OP_CATALOG` §12, `AGENT_VERIFICATION` §5.3).
+///
+/// An assertion is an ordinary typed node that produces a [`Report`]; this block
+/// records whether the predicate *held* ([`passed`](Self::passed)), the explicit
+/// [`severity`](Self::severity) that decides whether a failure fails the run, and
+/// the failure evidence the bundle surfaces: the worst offending pixel, a capped
+/// list of offending pixel locations, and the assertion-specific metrics
+/// (`max_abs_delta_outside` / `changed_pixels_outside` for
+/// `assert.no_change_outside_mask`, `nonfinite_count` for `assert.finite`).
+///
+/// The fields are deterministic functions of the inputs (every reduction runs in
+/// a fixed row-major order), so the verdict is reproducible across runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssertionOutcome {
+    /// The canonical id of the assertion that produced this verdict, e.g.
+    /// `assert.no_change_outside_mask@1`.
+    pub assertion: String,
+    /// Whether the asserted predicate held.
+    pub passed: bool,
+    /// The explicit severity governing whether a failure fails the run.
+    pub severity: AssertionSeverity,
+    /// The maximum absolute delta found *outside* the allowed region
+    /// (`assert.no_change_outside_mask` only), in the comparison space.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_abs_delta_outside: Option<f64>,
+    /// The number of pixels that changed *outside* the allowed region
+    /// (`assert.no_change_outside_mask` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_pixels_outside: Option<u64>,
+    /// The number of non-finite (`NaN`/`±∞`) samples found (`assert.finite`
+    /// only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonfinite_count: Option<u64>,
+    /// The `[x, y]` location of the single worst offending pixel, or `None` when
+    /// the assertion passed (no offending pixel).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worst_pixel: Option<[i64; 2]>,
+    /// A capped, row-major-ordered list of offending pixel `[x, y]` locations
+    /// (leaking pixels, or non-finite-sample pixels), for the failure artifact.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locations: Vec<[i64; 2]>,
+}
+
+/// A structured analysis report (`OP_CATALOG` §1): the resource *value* an
+/// inspection op (`image.inspect@1`) produces.
+///
+/// A report records the summarized resource's extent, its per-channel finite
+/// statistics, and a stable [`content_hash`](Report::content_hash) of the source
+/// samples. The content hash is computed by the canonical hashing module
+/// ([`crate::hash`], domain [`Content`](crate::hash::HashDomain::Content)) over a
+/// canonical encoding of the samples, so it is deterministic and matches the
+/// hashing module's identity for the same bytes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Report {
+    /// The pixel extent of the summarized resource.
+    pub extent: Extent,
+    /// The channel count of the summarized resource.
+    pub channels: u32,
+    /// Per-channel finite statistics, in channel order.
+    pub channel_stats: Vec<ChannelStats>,
+    /// Whether every sample of every channel is finite.
+    pub all_finite: bool,
+    /// The algorithm-prefixed content hash of the summarized samples
+    /// (`blake3:<hex>`), as produced by [`crate::hash`].
+    pub content_hash: String,
+    /// The whole-image difference summary, present only on the report a
+    /// difference op (`analyze.diff@1`) produces (`OP_CATALOG` §12,
+    /// `AGENT_VERIFICATION` §2.6). Absent (`None`) for an ordinary inspection
+    /// report, so it is omitted on serialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<DiffMetrics>,
+    /// The structured assertion verdict, present only on the report an assertion
+    /// op (`assert.no_change_outside_mask@1`, `assert.finite@1`) produces
+    /// (`IR_SPEC` §13, `AGENT_VERIFICATION` §5.3). Absent (`None`) for an ordinary
+    /// inspection or diff report, so it is omitted on serialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assertion: Option<AssertionOutcome>,
+}
+
+impl Report {
+    /// The type-level [`ReportDescriptor`] this report realizes.
+    #[must_use]
+    pub const fn descriptor(&self) -> ReportDescriptor {
+        ReportDescriptor {
+            extent: self.extent,
+            channels: self.channels,
+        }
+    }
+}
+
 /// A typed resource descriptor: the tagged union of every resource kind this
 /// bone defines (`IR_SPEC` §7).
 ///
 /// The `kind` tag matches the spec's JSON (`"Image"`, `"Mask"`, `"Field1"`,
-/// `"Field2"`, `"Field3"`, `"SdfMask"`).
+/// `"Field2"`, `"Field3"`, `"SdfMask"`, `"Report"`).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 #[non_exhaustive]
@@ -682,6 +892,8 @@ pub enum ResourceDescriptor {
     Field3(FieldDescriptor),
     /// A signed distance field.
     SdfMask(SdfDescriptor),
+    /// A structured analysis report (carries no raster).
+    Report(ReportDescriptor),
 }
 
 impl ResourceDescriptor {
@@ -693,6 +905,7 @@ impl ResourceDescriptor {
             Self::Mask(d) => d.extent,
             Self::Field1(d) | Self::Field2(d) | Self::Field3(d) => d.extent,
             Self::SdfMask(d) => d.extent,
+            Self::Report(d) => d.extent,
         }
     }
 
@@ -713,6 +926,7 @@ impl ResourceDescriptor {
             Self::Field2(_) => ResourceKind::Field2,
             Self::Field3(_) => ResourceKind::Field3,
             Self::SdfMask(_) => ResourceKind::SdfMask,
+            Self::Report(_) => ResourceKind::Report,
         }
     }
 }

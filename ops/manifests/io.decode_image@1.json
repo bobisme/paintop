@@ -1,0 +1,57 @@
+{
+  "id": "io.decode_image@1",
+  "impl_version": 1,
+  "summary": "Decode a PNG file into an Image under enforced decode limits.",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The decoded image."
+    }
+  ],
+  "params": [
+    {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "doc": "Path to the PNG file to decode, under the input root."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

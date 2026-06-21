@@ -65,28 +65,52 @@ fn validate_missing_file_is_asset_error_exit_nine() {
     assert_eq!(value["error"]["class"], serde_json::json!("asset"));
 }
 
+/// Every MVP operation (`M0_DECISIONS` D2) the M0 op set must expose through the
+/// real `op list` surface. Kept in sync with
+/// `paintop_cpu::registry::operation_registry`.
+const MVP_OPS: &[&str] = &[
+    "io.decode_image@1",
+    "io.encode_image@1",
+    "image.inspect@1",
+    "color.convert@1",
+    "alpha.premultiply@1",
+    "alpha.unpremultiply@1",
+    "mask.ellipse@1",
+    "paint.gaussian_splats@1",
+    "color.adjust@1",
+    "composite.masked_replace@1",
+    "analyze.diff@1",
+    "assert.no_change_outside_mask@1",
+    "assert.finite@1",
+    "debug.materialize@1",
+];
+
 #[test]
-fn op_list_emits_valid_json() {
+fn op_list_emits_all_mvp_ops() {
+    // M1 exit criterion: every operation has a manifest, and `op list` reads the
+    // real MVP registry (not a stub), so a fresh agent discovers the whole op set.
     let output = run(&["op", "list", "--format", "json"]);
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let value = stdout_json(&output);
     assert_eq!(value["ok"], serde_json::json!(true));
     let ops = value["operations"].as_array().expect("operations array");
-    assert!(!ops.is_empty(), "stub registry must list operations");
-    assert!(
-        ops.iter()
-            .any(|o| o["id"] == serde_json::json!("filter.gaussian_blur@1"))
-    );
+    assert_eq!(ops.len(), MVP_OPS.len(), "op list must show all 14 MVP ops");
+    for id in MVP_OPS {
+        assert!(
+            ops.iter().any(|o| o["id"] == serde_json::json!(id)),
+            "op list is missing {id}"
+        );
+    }
 }
 
 #[test]
 fn op_schema_known_op_emits_manifest_and_schema() {
-    let output = run(&["op", "schema", "filter.gaussian_blur@1"]);
+    let output = run(&["op", "schema", "paint.gaussian_splats@1"]);
     assert_eq!(output.status.code(), Some(0), "stderr: {}", stderr(&output));
     let value = stdout_json(&output);
     assert_eq!(
         value["manifest"]["id"],
-        serde_json::json!("filter.gaussian_blur@1")
+        serde_json::json!("paint.gaussian_splats@1")
     );
     assert!(value["schema"].is_object(), "schema must be a JSON object");
 }

@@ -454,6 +454,10 @@ pub enum ResourceKind {
     /// An ordered candidate set of one of the above (`IR_SPEC` §12). The element
     /// kind is carried separately by the consuming op's contract.
     CandidateSet,
+    /// A structured analysis report (`OP_CATALOG` §1): extent, per-channel
+    /// ranges, finite-value statistics, and a stable content hash. Carries no
+    /// raster; it is the output of inspection ops such as `image.inspect@1`.
+    Report,
 }
 
 /// A typed, named **input port** of an operation (`IR_SPEC` §5 `in`).
@@ -815,7 +819,7 @@ pub fn manifest_json_schema() -> serde_json::Value {
     use serde_json::json;
 
     let resource_kind = json!({
-        "enum": ["Image", "Mask", "Field1", "Field2", "Field3", "SdfMask", "CandidateSet"]
+        "enum": ["Image", "Mask", "Field1", "Field2", "Field3", "SdfMask", "CandidateSet", "Report"]
     });
 
     json!({

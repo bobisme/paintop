@@ -1,0 +1,180 @@
+{
+  "paintop": "1.0",
+  "name": "agent-edits-blemish-leaking",
+  "description": "The deliberately-leaking negative variant of the keystone scenario: the composite authorizes the WIDE ellipse, but assert.no_change_outside_mask checks against a NARROW ellipse. The edit legitimately changes pixels inside the wide region that lie outside the narrow assertion mask, so the assertion MUST fail with exit class 6 and the run MUST emit assertions.json plus a minimal replay. This guards the authorization-boundary check itself.",
+  "policy": {
+    "resources": {
+      "max_nodes": 64,
+      "max_pixels_per_resource": 33554432,
+      "max_splats": 256
+    },
+    "execution": {
+      "deadline_ms": 10000,
+      "allowed_backends": ["cpu-reference"]
+    }
+  },
+  "inputs": {},
+  "nodes": [
+    {
+      "id": "decoded",
+      "op": "io.decode_image@1",
+      "params": { "path": "conformance/fixtures/blemish-input.png" }
+    },
+    {
+      "id": "inspected",
+      "op": "image.inspect@1",
+      "in": { "image": "node:decoded/image" }
+    },
+    {
+      "id": "linear",
+      "op": "color.convert@1",
+      "in": { "image": "node:decoded/image" },
+      "params": { "from": "srgb", "to": "linear-srgb" }
+    },
+    {
+      "id": "base",
+      "op": "alpha.premultiply@1",
+      "in": { "image": "node:linear/image" }
+    },
+    {
+      "id": "allowed",
+      "op": "mask.ellipse@1",
+      "in": { "extent_from": "node:decoded/image" },
+      "params": {
+        "center_px": [128.0, 96.0],
+        "radii_px": [40.0, 22.0],
+        "angle_rad": -0.16,
+        "antialias": "analytic",
+        "edge": { "profile": "smoothstep", "half_width_px": 6.0 }
+      }
+    },
+    {
+      "id": "allowed_narrow",
+      "op": "mask.ellipse@1",
+      "in": { "extent_from": "node:decoded/image" },
+      "params": {
+        "center_px": [128.0, 96.0],
+        "radii_px": [6.0, 4.0],
+        "angle_rad": -0.16,
+        "antialias": "analytic",
+        "edge": { "profile": "smoothstep", "half_width_px": 1.0 }
+      }
+    },
+    {
+      "id": "splats",
+      "op": "paint.gaussian_splats@1",
+      "in": { "base": "node:base/image" },
+      "params": {
+        "space": "linear-srgb",
+        "splats": [
+          {
+            "center_px": [122.0, 92.0],
+            "sigma_px": [16.0, 6.0],
+            "angle_rad": -0.18,
+            "color": [0.16, 0.08, 0.035, 1.0],
+            "opacity": 0.12,
+            "blend": "multiply"
+          },
+          {
+            "center_px": [136.0, 100.0],
+            "sigma_px": [18.0, 7.0],
+            "angle_rad": -0.10,
+            "color": [0.20, 0.10, 0.04, 1.0],
+            "opacity": 0.08,
+            "blend": "multiply"
+          }
+        ]
+      }
+    },
+    {
+      "id": "graded",
+      "op": "color.adjust@1",
+      "in": { "image": "node:splats/image" },
+      "params": {
+        "exposure_ev": -0.04,
+        "saturation": -0.03,
+        "temperature": 0.02
+      }
+    },
+    {
+      "id": "composited",
+      "op": "composite.masked_replace@1",
+      "in": {
+        "edited": "node:graded/image",
+        "base": "node:base/image",
+        "mask": "node:allowed/mask"
+      }
+    },
+    {
+      "id": "straight",
+      "op": "alpha.unpremultiply@1",
+      "in": { "image": "node:composited/image" }
+    },
+    {
+      "id": "encoded",
+      "op": "color.convert@1",
+      "in": { "image": "node:straight/image" },
+      "params": { "from": "linear-srgb", "to": "srgb" }
+    },
+    {
+      "id": "evidence_diff",
+      "op": "analyze.diff@1",
+      "in": {
+        "before": "node:decoded/image",
+        "after": "node:encoded/image"
+      },
+      "params": { "comparison_space": "decoded-linear" }
+    },
+    {
+      "id": "localized",
+      "op": "assert.no_change_outside_mask@1",
+      "in": {
+        "before": "node:decoded/image",
+        "after": "node:encoded/image",
+        "allowed": "node:allowed_narrow/mask"
+      },
+      "params": {
+        "comparison_space": "decoded-linear",
+        "outside_threshold": 0.000001,
+        "coverage_epsilon": 0.0001
+      }
+    },
+    {
+      "id": "finite",
+      "op": "assert.finite@1",
+      "in": { "resource": "node:composited/image" }
+    },
+    {
+      "id": "written",
+      "op": "io.encode_image@1",
+      "in": { "image": "node:encoded/image" },
+      "params": { "path": "conformance/out/blemish-leak-out.png" }
+    }
+  ],
+  "assertions": [
+    { "id": "localized", "subject": "node:localized/report" },
+    { "id": "finite", "subject": "node:finite/report" }
+  ],
+  "exports": {
+    "final": {
+      "resource": "node:encoded/image",
+      "kind": "image",
+      "path": "out.png",
+      "encoding": { "format": "png" }
+    }
+  },
+  "evidence": {
+    "trace": "detailed",
+    "graph": ["dot"],
+    "contact_sheet": true,
+    "materialize": [
+      "node:allowed/mask",
+      "node:splats/image",
+      "node:encoded/image",
+      "node:written/image"
+    ],
+    "diffs": [
+      { "before": "node:decoded/image", "after": "node:encoded/image" }
+    ]
+  }
+}

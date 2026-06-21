@@ -1,0 +1,15 @@
+{
+  "paintop": "1.0",
+  "inputs": {},
+  "nodes": [
+    {"id": "n0", "op": "debug.identity@1"},
+    {"id": "n1", "op": "debug.identity@1"},
+    {"id": "n2", "op": "debug.identity@1"},
+    {"id": "n3", "op": "debug.identity@1"},
+    {"id": "n4", "op": "debug.identity@1"},
+    {"id": "n5", "op": "debug.identity@1"},
+    {"id": "n6", "op": "debug.identity@1"},
+    {"id": "n7", "op": "debug.identity@1"}
+  ],
+  "exports": {}
+}

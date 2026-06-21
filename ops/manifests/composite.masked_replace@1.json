@@ -1,0 +1,73 @@
+{
+  "id": "composite.masked_replace@1",
+  "impl_version": 1,
+  "summary": "Composite an edited image over a base image through a coverage mask in premultiplied linear light (out = m·edited + (1−m)·base); the single MVP authorization boundary. Where the mask is 0 the output is the base bit-for-bit; where it is 1, the edited. Rejected on nonlinear (srgb) or straight-alpha input.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "edited",
+      "kind": "Image",
+      "required": true,
+      "doc": "The premultiplied linear-light edited image, kept where the mask is 1."
+    },
+    {
+      "name": "base",
+      "kind": "Image",
+      "required": true,
+      "doc": "The premultiplied linear-light base image, kept where the mask is 0."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage mask in [0, 1] selecting edited over base, co-located with the images."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The composited image (the base descriptor; same extent/layout)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "composite.masked_replace is a bit-exact per-channel premultiplied blend verified by mask-extreme exactness, outside-region bit-identity, and soft-mask blend properties; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

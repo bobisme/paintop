@@ -201,8 +201,14 @@ fn token_at_looks_like_number(source: &str, line: usize, column: usize) -> bool 
         return false;
     };
     // `serde_json` columns are 1-based and point at (just past) the offending
-    // byte; clamp into range and look at the token starting there.
-    let start = column.saturating_sub(1).min(line_text.len());
+    // byte; clamp into range and look at the token starting there. The column is
+    // a *byte* offset, so it may land inside a multi-byte UTF-8 sequence (e.g.
+    // when the failing token follows non-ASCII text); floor it to the previous
+    // char boundary so the slice below never panics.
+    let mut start = column.saturating_sub(1).min(line_text.len());
+    while start > 0 && !line_text.is_char_boundary(start) {
+        start -= 1;
+    }
     let rest = line_text[start..].trim_start();
     let rest = rest.strip_prefix('-').unwrap_or(rest);
     rest.starts_with("NaN") || rest.starts_with("Infinity")
@@ -512,6 +518,21 @@ mod tests {
     fn negative_infinity_literal_is_invalid_number() {
         let err = scan_json(r#"{"sigma": -Infinity}"#).unwrap_err();
         assert_eq!(err.code, E_INVALID_NUMBER);
+    }
+
+    #[test]
+    fn syntax_error_after_multibyte_text_does_not_panic() {
+        // Regression (found by the `plan_parse` fuzz target): `serde_json`
+        // reports the failing column as a *byte* offset, which can land inside a
+        // multi-byte UTF-8 sequence. The non-finite reclassification used to
+        // slice the line at that raw byte index and panic with "not a char
+        // boundary". A malformed token following non-ASCII text must classify
+        // cleanly instead of aborting the process.
+        let err = scan_json("{\"d\": \"\u{7ab}\", x}").unwrap_err();
+        assert_eq!(err.class, ErrorClass::Parse);
+        // The exact code (invalid-json vs invalid-number) is not the point; the
+        // point is that the scan returns an error rather than panicking.
+        assert!(err.code == E_INVALID_JSON || err.code == E_INVALID_NUMBER);
     }
 
     #[test]

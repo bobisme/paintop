@@ -1,0 +1,91 @@
+{
+  "id": "color.adjust@1",
+  "impl_version": 1,
+  "summary": "Pointwise linear-light color grading: explicit exposure (EV), saturation, and temperature sub-adjustments, optionally gated by a coverage mask.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The linear-light color image to grade."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": false,
+      "doc": "Optional coverage mask gating the adjustment per pixel; absent applies the adjustment everywhere."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The graded image (same extent/layout/encoding as the input)."
+    }
+  ],
+  "params": [
+    {
+      "name": "exposure_ev",
+      "type": "float",
+      "unit": "ev",
+      "required": false,
+      "default": 0.0,
+      "doc": "Linear-light exposure in EV / stops (x -> x * 2^ev); 0 is the identity."
+    },
+    {
+      "name": "saturation",
+      "type": "float",
+      "required": false,
+      "default": 0.0,
+      "doc": "Saturation blend toward luminance; 0 is the identity, -1 fully desaturates."
+    },
+    {
+      "name": "temperature",
+      "type": "float",
+      "required": false,
+      "default": 0.0,
+      "doc": "Warm/cool tilt scaling red up and blue down (positive warms); 0 is the identity."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "color.adjust is a closed-form numeric color transform verified by analytic value tables and algebraic properties (exposure composition, zero-adjustment identity, masked identity); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

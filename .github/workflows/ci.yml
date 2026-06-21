@@ -50,6 +50,102 @@ jobs:
       - name: Docs
         run: cargo doc --workspace --no-deps
 
+  # M0 exit-criteria gate (plan.md §19 "M0 — repository and contracts" plus the
+  # first-half-M1 "all operations have manifests" criterion). Runs the §19 CLI
+  # validate criteria with their exact exit codes, asserts `op list` exposes all
+  # 14 MVP ops, and runs `verify-op` for every op manifest. The fmt/clippy/test/
+  # doc legs of §19 are the Layer-0 job above; this job covers the executable
+  # CLI/op checklist so the M0 milestone has a single explicit gate.
+  m0-gate:
+    name: M0 exit criteria
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Build the CLI and xtask once, then run the gate against the prebuilt
+      # binaries so the per-op verify-op loop never nests cargo.
+      - name: Build CLI and xtask
+        run: cargo build -p paintop-cli -p xtask
+
+      - name: M0 exit-criteria checks (validate + op list + verify-op)
+        env:
+          PAINTOP_BIN: target/debug/paintop
+          XTASK_BIN: target/debug/xtask
+        run: |
+          set -euo pipefail
+          # §19: an empty plan validates (exit 0).
+          "$PAINTOP_BIN" validate fixtures/plans/empty-valid.json
+          # §19: an unknown field fails predictably with the schema exit class (2).
+          set +e; "$PAINTOP_BIN" validate fixtures/plans/unknown-field.json; code=$?; set -e
+          test "$code" -eq 2 || { echo "expected exit 2, got $code" >&2; exit 1; }
+          # M1: op list exposes all 14 MVP ops.
+          n=$("$PAINTOP_BIN" op list --format json | jq '.operations | length')
+          test "$n" -eq 14 || { echo "op list shows $n ops, expected 14" >&2; exit 1; }
+          # M1: every op manifest passes verify-op.
+          for manifest in ops/manifests/*.json; do
+            op=$(jq -r '.id' "$manifest")
+            "$XTASK_BIN" verify-op --manifest "$manifest" "$op"
+          done
+          echo "M0 exit criteria: PASS"
+
+  # End-to-end keystone conformance (plan.md §19/§25; AGENT_VERIFICATION §5/§6):
+  # run the "agent edits a blemish" non-SDF loop through the real pipeline, prove
+  # the no_change_outside_mask assertion passes, prove a byte-identical
+  # reproducible rerun, and prove the deliberately-leaking variant fails with
+  # exit class 6 plus a minimal replay. The evidence bundle is preserved as a
+  # build artifact for inspection.
+  conformance:
+    name: Keystone conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Runs the full end-to-end loop, the reproducible-rerun assertion, and the
+      # negative leaking variant (exit 6 + assertions.json + replay).
+      - name: Run blemish conformance
+        run: cargo test -p paintop-cpu --test blemish_conformance -- --nocapture
+
+      # Produce a fresh evidence bundle through the CLI and keep it as evidence.
+      - name: Emit evidence bundle via the CLI
+        run: |
+          mkdir -p conformance/out
+          cargo run -p paintop-cli -- run conformance/plans/blemish.json \
+            --bundle target/conformance-bundle
+
+      - name: Upload evidence bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-bundle
+          path: target/conformance-bundle/
+          if-no-files-found: warn
+
   # Changed-op verification (AGENT_VERIFICATION §8.1, §14): for every op manifest
   # under `ops/manifests/` that this PR touches, run `cargo xtask verify-op` and
   # preserve its `target/verification/<op-id>/` report tree as a build artifact.
@@ -133,3 +229,49 @@ jobs:
           name: verification-reports
           path: target/verification/
           if-no-files-found: warn
+
+  # Bounded fuzz smoke (plan.md §19 M0; AGENT_VERIFICATION §2.1/§2.2). Builds and
+  # briefly runs the libFuzzer targets for the plan-parse and PNG-codec
+  # boundaries, seeded from the checked-in corpus. Kept off the Layer-0 gate
+  # (nightly toolchain, libFuzzer) and time-boxed so it never blocks fast PRs;
+  # exits non-zero — failing the job — if any target crashes.
+  fuzz-smoke:
+    name: Fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Cache cargo registry and fuzz target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            fuzz/target
+          key: ${{ runner.os }}-fuzz-${{ hashFiles('fuzz/Cargo.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-fuzz-
+
+      - name: Fuzz smoke (each target, time-boxed)
+        env:
+          FUZZ_NIGHTLY: nightly
+          FUZZ_SECONDS: "30"
+        run: |
+          cargo +nightly fuzz build --fuzz-dir fuzz
+          cargo +nightly fuzz run --fuzz-dir fuzz plan_parse -- \
+            -max_total_time=30 -rss_limit_mb=2048
+          cargo +nightly fuzz run --fuzz-dir fuzz png_decode -- \
+            -max_total_time=30 -rss_limit_mb=2048
+
+      - name: Upload crash artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

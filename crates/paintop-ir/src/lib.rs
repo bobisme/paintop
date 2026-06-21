@@ -51,10 +51,11 @@ pub use resolve::{
     Reference, ResolvedExport, ResolvedGraph, ResolvedNode, resolve_plan,
 };
 pub use resource::{
-    AlphaRepresentation, BoundaryMode, ChannelLayout, ColorEncoding, ColorRange,
-    CoordinateConvention, Extent, FieldArity, FieldDescriptor, ImageDescriptor, MaskDescriptor,
-    MaskMeaning, Rect, RequestedColorEncoding, ResourceDescriptor, ScalarType, SdfDescriptor,
-    SdfSign, SdfUnits, SemanticRole, ValidRange, VectorEncoding, VectorNormalization, VectorSpace,
+    AlphaRepresentation, AssertionOutcome, AssertionSeverity, BoundaryMode, ChannelLayout,
+    ChannelStats, ColorEncoding, ColorRange, CoordinateConvention, DiffMetrics, Extent, FieldArity,
+    FieldDescriptor, ImageDescriptor, MaskDescriptor, MaskMeaning, Rect, Report, ReportDescriptor,
+    RequestedColorEncoding, ResourceDescriptor, ScalarType, SdfDescriptor, SdfSign, SdfUnits,
+    SemanticRole, ValidRange, VectorEncoding, VectorNormalization, VectorSpace,
 };
 pub use scan::{E_DUPLICATE_KEY, E_INVALID_NUMBER, scan_json};
 pub use verify::{

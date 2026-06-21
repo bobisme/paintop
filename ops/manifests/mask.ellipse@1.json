@@ -1,0 +1,101 @@
+{
+  "id": "mask.ellipse@1",
+  "impl_version": 1,
+  "summary": "Rasterize a rotated ellipse into a coverage Mask with an analytic soft-edge feather (smoothstep, half_width_px) evaluated from the implicit quadratic.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "extent_from",
+      "kind": "Image",
+      "required": true,
+      "doc": "The resource whose pixel extent the produced mask matches."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The ellipse coverage mask in [0, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "center_px",
+      "type": "json",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The ellipse center [x, y] in pixel coordinates."
+    },
+    {
+      "name": "radii_px",
+      "type": "json",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The semi-axis radii [rx, ry] in pixels; both strictly positive."
+    },
+    {
+      "name": "angle_rad",
+      "type": "float",
+      "unit": "radians",
+      "required": false,
+      "default": 0.0,
+      "doc": "Counter-clockwise rotation of the ellipse, in radians."
+    },
+    {
+      "name": "antialias",
+      "type": "string",
+      "required": false,
+      "default": "analytic",
+      "choices": [
+        "analytic"
+      ],
+      "doc": "The antialias mode; only analytic coverage is supported."
+    },
+    {
+      "name": "edge",
+      "type": "json",
+      "required": false,
+      "doc": "Optional soft edge { profile: smoothstep, half_width_px: N } feathering the boundary by N physical pixels; absent is a hard edge."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "mask.ellipse produces analytic geometric coverage verified by analytic area convergence, rotation/translation covariance, and a measured feather width; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}
