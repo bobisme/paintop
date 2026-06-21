@@ -1,0 +1,114 @@
+{
+  "id": "image.pad@1",
+  "impl_version": 1,
+  "summary": "Enlarge an image with left/right/top/bottom margins filled per a boundary mode (constant/clamp/mirror/wrap); negative margins crop that side.",
+  "determinism": "exact",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image to pad."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The padded image (extent grown by the margins; all other descriptor fields preserved)."
+    }
+  ],
+  "params": [
+    {
+      "name": "left",
+      "type": "integer",
+      "unit": "pixels",
+      "required": false,
+      "default": 0,
+      "doc": "Pixels to add on the left (negative crops)."
+    },
+    {
+      "name": "right",
+      "type": "integer",
+      "unit": "pixels",
+      "required": false,
+      "default": 0,
+      "doc": "Pixels to add on the right (negative crops)."
+    },
+    {
+      "name": "top",
+      "type": "integer",
+      "unit": "pixels",
+      "required": false,
+      "default": 0,
+      "doc": "Pixels to add on the top (negative crops)."
+    },
+    {
+      "name": "bottom",
+      "type": "integer",
+      "unit": "pixels",
+      "required": false,
+      "default": 0,
+      "doc": "Pixels to add on the bottom (negative crops)."
+    },
+    {
+      "name": "mode",
+      "type": "string",
+      "required": false,
+      "default": "constant",
+      "choices": [
+        "constant",
+        "clamp",
+        "mirror",
+        "wrap"
+      ],
+      "doc": "How border samples are synthesized from the input edge."
+    },
+    {
+      "name": "value",
+      "type": "json",
+      "required": false,
+      "doc": "Per-channel constant fill for `constant` mode; defaults to all-zero."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.pad copies the interior verbatim and synthesizes borders by exact clamp/mirror/wrap/constant rules; correctness is verified by per-mode boundary fixtures and the crop/pad round-trip identity, not a perceptual-quality metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

@@ -55,15 +55,15 @@ fi
 echo "  ok: unknown-field plan rejected with the stable schema exit class (2)"
 
 # ---------------------------------------------------------------------------
-# 3. op list exposes all 14 MVP ops.
+# 3. op list exposes at least the 14 M0 MVP ops (M1 adds more on top).
 # ---------------------------------------------------------------------------
-step "op list exposes all 14 MVP operations"
+step "op list exposes at least the 14 M0 MVP operations"
 op_count=$(run_paintop op list --format json | jq '.operations | length')
-if [ "$op_count" -ne 14 ]; then
-  echo "  FAIL: op list shows $op_count operations, expected 14" >&2
+if [ "$op_count" -lt 14 ]; then
+  echo "  FAIL: op list shows $op_count operations, expected at least 14" >&2
   exit 1
 fi
-echo "  ok: op list shows all 14 MVP operations"
+echo "  ok: op list shows $op_count operations (>= 14 M0 MVP ops)"
 
 # ---------------------------------------------------------------------------
 # 4. Every MVP op manifest passes verify-op (M1: all operations have manifests).

@@ -847,6 +847,7 @@ dependencies = [
  "paintop-core",
  "paintop-image",
  "paintop-ir",
+ "paintop-testkit",
  "serde",
  "serde_json",
 ]

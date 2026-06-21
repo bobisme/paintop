@@ -1,0 +1,91 @@
+{
+  "id": "image.extract_channel@1",
+  "impl_version": 1,
+  "summary": "Extract one channel (by 0-based index) of an Image into a single-channel Field1 scalar field, copied verbatim, with explicit semantic role and valid range.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image to extract a channel from."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "field",
+      "kind": "Field1",
+      "doc": "The extracted channel as a single-channel scalar field."
+    }
+  ],
+  "params": [
+    {
+      "name": "channel",
+      "type": "integer",
+      "required": true,
+      "doc": "The 0-based channel index to extract."
+    },
+    {
+      "name": "semantic",
+      "type": "string",
+      "required": false,
+      "default": "material",
+      "choices": [
+        "color",
+        "material",
+        "normal",
+        "depth",
+        "confidence",
+        "distance",
+        "flow"
+      ],
+      "doc": "The semantic role of the extracted scalar field."
+    },
+    {
+      "name": "range",
+      "type": "json",
+      "required": false,
+      "doc": "The valid-range policy of the extracted field; defaults to unbounded."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.extract_channel copies one channel verbatim into a Field1; correctness is verified by an exact channel-selection fixture and a round-trip with image.assemble_channels, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

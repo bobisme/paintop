@@ -83,6 +83,36 @@ const MVP_OPS: &[&str] = &[
     "assert.no_change_outside_mask@1",
     "assert.finite@1",
     "debug.materialize@1",
+    "image.extract_channel@1",
+    "image.assemble_channels@1",
+    "image.create@1",
+    "mask.empty@1",
+    "mask.full@1",
+    "mask.rect@1",
+    "paint.fill@1",
+    "paint.linear_gradient@1",
+    "paint.radial_gradient@1",
+    "composite.over@1",
+    "composite.blend@1",
+    "mask.invert@1",
+    "mask.union@1",
+    "mask.intersect@1",
+    "mask.subtract@1",
+    "mask.bounds@1",
+    "mask.polygon@1",
+    "image.crop@1",
+    "image.pad@1",
+    "image.flip@1",
+    "image.rotate90@1",
+    "image.resize@1",
+    "filter.convolve@1",
+    "filter.gaussian_blur@1",
+    "analyze.statistics@1",
+    "analyze.histogram@1",
+    "analyze.changed_bounds@1",
+    "assert.range@1",
+    "assert.alpha_valid@1",
+    "assert.changed_bounds@1",
 ];
 
 #[test]
@@ -94,7 +124,11 @@ fn op_list_emits_all_mvp_ops() {
     let value = stdout_json(&output);
     assert_eq!(value["ok"], serde_json::json!(true));
     let ops = value["operations"].as_array().expect("operations array");
-    assert_eq!(ops.len(), MVP_OPS.len(), "op list must show all 14 MVP ops");
+    assert_eq!(
+        ops.len(),
+        MVP_OPS.len(),
+        "op list must show every registered op"
+    );
     for id in MVP_OPS {
         assert!(
             ops.iter().any(|o| o["id"] == serde_json::json!(id)),

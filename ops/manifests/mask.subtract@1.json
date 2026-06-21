@@ -1,0 +1,67 @@
+{
+  "id": "mask.subtract@1",
+  "impl_version": 1,
+  "summary": "Relative complement of two coverage Masks: a - b = min(a, 1 - b), the fuzzy (min-max algebra) difference a intersect not-b.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "a",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The left-hand coverage mask."
+    },
+    {
+      "name": "b",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The right-hand coverage mask (same extent as `a`)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The difference mask min(a, 1 - b) in [0, 1]."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "subtract is the exact closed-form min(a, 1 - b) verified by fixtures and the A - A = empty (hard) law; there is no perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

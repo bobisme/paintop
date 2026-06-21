@@ -1,0 +1,164 @@
+{
+  "paintop": "1.0",
+  "name": "agent-paints-masked-gradient-banner",
+  "description": "The M1 conformance scenario (plan.md S19 M1; OP_CATALOG S18; AGENT_VERIFICATION S6): a SECOND, distinct agent-authored fixture edit that exercises the new M1 P0 ops end-to-end. It decodes a deterministic fixture, linearizes and premultiplies it into the BASE, synthesizes a linear-light color gradient (paint.linear_gradient), softens it with a reference Gaussian blur (filter.gaussian_blur), builds an authorized polygon banner mask (mask.polygon, nonzero winding), composites the blurred gradient over the base THROUGH the authorized polygon via the single authorization boundary (composite.masked_replace), proves nothing leaked outside the polygon (assert.no_change_outside_mask) and every sample stayed finite (assert.finite), then unpremultiplies, returns to sRGB, and encodes. Every reference is wired through the real op ports; there is no SDF path. This is deliberately different from the blemish scenario (gradient + blur + polygon composite vs. ellipse + splats).",
+  "policy": {
+    "resources": {
+      "max_nodes": 64,
+      "max_pixels_per_resource": 33554432,
+      "max_splats": 256
+    },
+    "execution": {
+      "deadline_ms": 10000,
+      "allowed_backends": ["cpu-reference"]
+    }
+  },
+  "inputs": {},
+  "nodes": [
+    {
+      "id": "decoded",
+      "op": "io.decode_image@1",
+      "params": { "path": "conformance/fixtures/blemish-input.png" }
+    },
+    {
+      "id": "inspected",
+      "op": "image.inspect@1",
+      "in": { "image": "node:decoded/image" }
+    },
+    {
+      "id": "linear",
+      "op": "color.convert@1",
+      "in": { "image": "node:decoded/image" },
+      "params": { "from": "srgb", "to": "linear-srgb" }
+    },
+    {
+      "id": "base",
+      "op": "alpha.premultiply@1",
+      "in": { "image": "node:linear/image" }
+    },
+    {
+      "id": "gradient",
+      "op": "paint.linear_gradient@1",
+      "in": { "extent_from": "node:decoded/image" },
+      "params": {
+        "start_px": [40.0, 64.0],
+        "end_px": [216.0, 128.0],
+        "layout": "rgba",
+        "color": "linear-srgb",
+        "range": "display-referred",
+        "alpha": "straight",
+        "stops": [
+          { "position": 0.0, "color": [0.05, 0.18, 0.42, 1.0] },
+          { "position": 0.5, "color": [0.30, 0.36, 0.55, 1.0] },
+          { "position": 1.0, "color": [0.72, 0.40, 0.16, 1.0] }
+        ]
+      }
+    },
+    {
+      "id": "gradient_premul",
+      "op": "alpha.premultiply@1",
+      "in": { "image": "node:gradient/image" }
+    },
+    {
+      "id": "softened",
+      "op": "filter.gaussian_blur@1",
+      "in": { "input": "node:gradient_premul/image" },
+      "params": { "sigma": 3.5, "mode": "clamp" }
+    },
+    {
+      "id": "allowed",
+      "op": "mask.polygon@1",
+      "in": { "extent_from": "node:decoded/image" },
+      "params": {
+        "fill_rule": "nonzero",
+        "points": [
+          [48.0, 60.0],
+          [208.0, 52.0],
+          [200.0, 132.0],
+          [56.0, 140.0]
+        ]
+      }
+    },
+    {
+      "id": "composited",
+      "op": "composite.masked_replace@1",
+      "in": {
+        "edited": "node:softened/output",
+        "base": "node:base/image",
+        "mask": "node:allowed/mask"
+      }
+    },
+    {
+      "id": "straight",
+      "op": "alpha.unpremultiply@1",
+      "in": { "image": "node:composited/image" }
+    },
+    {
+      "id": "encoded",
+      "op": "color.convert@1",
+      "in": { "image": "node:straight/image" },
+      "params": { "from": "linear-srgb", "to": "srgb" }
+    },
+    {
+      "id": "evidence_diff",
+      "op": "analyze.diff@1",
+      "in": {
+        "before": "node:decoded/image",
+        "after": "node:encoded/image"
+      },
+      "params": { "comparison_space": "decoded-linear" }
+    },
+    {
+      "id": "localized",
+      "op": "assert.no_change_outside_mask@1",
+      "in": {
+        "before": "node:decoded/image",
+        "after": "node:encoded/image",
+        "allowed": "node:allowed/mask"
+      },
+      "params": {
+        "comparison_space": "decoded-linear",
+        "outside_threshold": 0.000001,
+        "coverage_epsilon": 0.0001
+      }
+    },
+    {
+      "id": "finite",
+      "op": "assert.finite@1",
+      "in": { "resource": "node:composited/image" }
+    },
+    {
+      "id": "written",
+      "op": "io.encode_image@1",
+      "in": { "image": "node:encoded/image" },
+      "params": { "path": "conformance/out/banner-out.png" }
+    }
+  ],
+  "assertions": [
+    { "id": "localized", "subject": "node:localized/report" },
+    { "id": "finite", "subject": "node:finite/report" }
+  ],
+  "exports": {
+    "final": {
+      "resource": "node:encoded/image",
+      "kind": "image",
+      "path": "out.png",
+      "encoding": { "format": "png" }
+    }
+  },
+  "evidence": {
+    "trace": "detailed",
+    "graph": ["dot"],
+    "contact_sheet": true,
+    "materialize": [
+      "node:allowed/mask",
+      "node:gradient/image",
+      "node:softened/output",
+      "node:encoded/image",
+      "node:written/image"
+    ],
+    "diffs": [
+      { "before": "node:decoded/image", "after": "node:encoded/image" }
+    ]
+  }
+}

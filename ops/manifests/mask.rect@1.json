@@ -1,0 +1,70 @@
+{
+  "id": "mask.rect@1",
+  "impl_version": 1,
+  "summary": "Rasterize an axis-aligned half-open rectangle into a coverage Mask with analytic antialiasing (each pixel's coverage is its exact fractional area overlap with the rect).",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "extent_from",
+      "kind": "Image",
+      "required": true,
+      "doc": "The resource whose pixel extent the produced mask matches."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The rectangle coverage mask in [0, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "rect",
+      "type": "json",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The half-open rectangle [x0, y0, x1, y1] in pixel coordinates; covers [x0, x1) x [y0, y1)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "produces analytic rectangle coverage verified by exact half-open fixtures and analytic area equality; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

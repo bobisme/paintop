@@ -1,0 +1,67 @@
+{
+  "id": "composite.over@1",
+  "impl_version": 1,
+  "summary": "Composite a source image over a destination image in premultiplied linear light (Porter–Duff over: C_o = C_s + C_d·(1−α_s), α_o = α_s + α_d·(1−α_s)). Rejected on nonlinear (srgb), straight-alpha, or no-alpha input.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "src",
+      "kind": "Image",
+      "required": true,
+      "doc": "The premultiplied linear-light source image, composited over dst."
+    },
+    {
+      "name": "dst",
+      "kind": "Image",
+      "required": true,
+      "doc": "The premultiplied linear-light destination image, composited under src."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The composited image (the dst descriptor; same extent/layout)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "composite.over is a bit-exact per-channel premultiplied source-over verified by the AGENT_VERIFICATION §3.2 property set (transparent/opaque identities, premultiplied constraint, associativity, alpha-edge fringe); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

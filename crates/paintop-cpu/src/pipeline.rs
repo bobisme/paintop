@@ -218,6 +218,24 @@ fn assertion_entry(id: &str, op: &str, report: &Report) -> AssertionEntry {
     if let Some(p) = verdict.worst_pixel {
         metrics.insert("worst_pixel".to_owned(), serde_json::json!(p));
     }
+    if let Some(v) = verdict.violations {
+        metrics.insert("violations".to_owned(), serde_json::json!(v));
+    }
+    if let Some(w) = verdict.worst_value {
+        metrics.insert("worst_value".to_owned(), serde_json::json!(w));
+    }
+    if let Some(b) = verdict.changed_bounds {
+        metrics.insert(
+            "changed_bounds".to_owned(),
+            serde_json::json!([b.x0, b.y0, b.x1, b.y1]),
+        );
+    }
+    if let Some(b) = verdict.expected_bounds {
+        metrics.insert(
+            "expected_bounds".to_owned(),
+            serde_json::json!([b.x0, b.y0, b.x1, b.y1]),
+        );
+    }
     AssertionEntry::new(id, op, status).with_metrics(metrics)
 }
 

@@ -41,6 +41,15 @@ build:
 m0-gate:
     bash ci/m0-gate.sh
 
+# M1 exit-criteria gate (plan.md §19 M1; OP_CATALOG §18 P0 conformance set):
+# runs `just check`, asserts `op list` exposes the full P0 set (each with a
+# manifest), runs `verify-op` for every P0 op, and runs the NEW agent-authored
+# banner scenario (gradient + blur + polygon composite) green with a passing
+# no-change-outside-mask assertion + reproducible rerun hash + a leaking variant
+# that fails with exit 6. This is the executable M1 checklist.
+m1-gate:
+    bash ci/m1-gate.sh
+
 # Run `cargo xtask verify-op` for every MVP op manifest under ops/manifests/.
 verify-ops:
     #!/usr/bin/env bash

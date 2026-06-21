@@ -177,6 +177,7 @@ fn report_resource_round_trips() {
         content_hash: "blake3:deadbeef".to_owned(),
         diff: None,
         assertion: None,
+        histogram: None,
     };
     let value = ResourceValue::report(report.clone());
     let out = materialize_value(&value);

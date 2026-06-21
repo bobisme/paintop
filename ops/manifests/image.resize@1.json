@@ -1,0 +1,89 @@
+{
+  "id": "image.resize@1",
+  "impl_version": 1,
+  "summary": "Separable resampling to a target extent with a fixed-definition filter (nearest / bilinear / bicubic Catmull-Rom / Lanczos-3); half-pixel-corrected pixel-center mapping, edge-clamped boundary.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image to resample."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The resampled image (target extent; all other descriptor fields preserved)."
+    }
+  ],
+  "params": [
+    {
+      "name": "width",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "Target width in pixels (must be non-zero)."
+    },
+    {
+      "name": "height",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "Target height in pixels (must be non-zero)."
+    },
+    {
+      "name": "filter",
+      "type": "string",
+      "required": true,
+      "choices": [
+        "nearest",
+        "bilinear",
+        "bicubic",
+        "lanczos"
+      ],
+      "doc": "The fixed-definition resampling filter: nearest (1 tap), bilinear (2), bicubic Catmull-Rom (4), or Lanczos-3 (6)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.resize applies fixed-definition resampling kernels verified by analytic value tables and kernel algebra (identity-scale identity, nearest integer-translation exactness, constant preservation, tiling independence, band-limited round-trip tolerance); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

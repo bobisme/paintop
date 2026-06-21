@@ -18,6 +18,7 @@ image = { workspace = true }
 
 [dev-dependencies]
 serde = { workspace = true }
+paintop-testkit = { workspace = true }
 
 [lints]
 workspace = true

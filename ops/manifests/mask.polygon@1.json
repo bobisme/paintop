@@ -1,0 +1,81 @@
+{
+  "id": "mask.polygon@1",
+  "impl_version": 1,
+  "summary": "Rasterize a polygon into a coverage Mask under an explicit fill rule (nonzero winding / even-odd) with supersampled antialiasing; degenerate and self-touching edges produce finite coverage.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "extent_from",
+      "kind": "Image",
+      "required": true,
+      "doc": "The resource whose pixel extent the produced mask matches."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "doc": "The polygon coverage mask in [0, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "points",
+      "type": "json",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The polygon vertices as an array of [x, y] pixel coordinates, in path order (the closing edge from the last to the first vertex is implicit)."
+    },
+    {
+      "name": "fill_rule",
+      "type": "string",
+      "required": false,
+      "default": "nonzero",
+      "choices": [
+        "nonzero",
+        "even-odd"
+      ],
+      "doc": "The fill rule: `nonzero` winding (default) or `even-odd` parity."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "polygon coverage is an exact supersampled count verified by analytic-area convergence, fill-rule, degenerate-edge, and rotation-covariance tests; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

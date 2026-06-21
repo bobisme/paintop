@@ -1,0 +1,86 @@
+{
+  "id": "filter.convolve@1",
+  "impl_version": 1,
+  "summary": "Direct 2-D correlation of an Image or Field1 against a small explicit kernel under a boundary mode (constant/transparent/clamp/mirror/wrap/valid); the reference oracle for all optimized convolution paths.",
+  "determinism": "exact",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The Image or Field1 to filter (each channel filtered independently)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Image",
+      "doc": "The filtered Image or Field1 (same kind as the input; extent shrinks under `valid`)."
+    }
+  ],
+  "params": [
+    {
+      "name": "kernel",
+      "type": "json",
+      "required": true,
+      "doc": "The kernel: { width, height, origin_x?, origin_y?, weights[] } with a row-major weights array of width*height finite numbers; origin defaults to the geometric centre."
+    },
+    {
+      "name": "mode",
+      "type": "string",
+      "required": false,
+      "default": "clamp",
+      "choices": [
+        "constant",
+        "transparent",
+        "clamp",
+        "mirror",
+        "wrap",
+        "valid"
+      ],
+      "doc": "How taps that overhang the input edge are resolved."
+    },
+    {
+      "name": "value",
+      "type": "json",
+      "required": false,
+      "doc": "Per-channel constant for `constant` mode; defaults to all-zero."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

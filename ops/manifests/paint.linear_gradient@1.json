@@ -1,0 +1,130 @@
+{
+  "id": "paint.linear_gradient@1",
+  "impl_version": 1,
+  "summary": "Synthesize a linear color gradient between two endpoints with explicit sorted color stops; t = clamp(dot(P − start, end − start) / |end − start|², 0, 1) interpolated per channel in the declared color space.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "extent_from",
+      "kind": "Image",
+      "required": true,
+      "doc": "The resource whose pixel extent the produced gradient image matches."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The produced gradient image."
+    }
+  ],
+  "params": [
+    {
+      "name": "start_px",
+      "type": "json",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The gradient start endpoint [x, y] in pixel coordinates (t = 0)."
+    },
+    {
+      "name": "end_px",
+      "type": "json",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The gradient end endpoint [x, y] in pixel coordinates (t = 1)."
+    },
+    {
+      "name": "layout",
+      "type": "string",
+      "required": false,
+      "default": "rgba",
+      "choices": [
+        "gray",
+        "gray-a",
+        "rgb",
+        "rgba"
+      ],
+      "doc": "The channel layout of the produced image; stop colors carry one component per channel."
+    },
+    {
+      "name": "color",
+      "type": "string",
+      "required": false,
+      "default": "srgb",
+      "choices": [
+        "srgb",
+        "linear-srgb",
+        "raw-linear"
+      ],
+      "doc": "The color encoding of the produced image; interpolation happens in this space."
+    },
+    {
+      "name": "range",
+      "type": "string",
+      "required": false,
+      "default": "display-referred",
+      "choices": [
+        "display-referred",
+        "scene-referred"
+      ],
+      "doc": "The reference-light range policy; display-referred bounds color stops to [0, 1]."
+    },
+    {
+      "name": "alpha",
+      "type": "string",
+      "required": false,
+      "default": "straight",
+      "choices": [
+        "premultiplied",
+        "straight"
+      ],
+      "doc": "The alpha representation of the produced image."
+    },
+    {
+      "name": "stops",
+      "type": "json",
+      "required": true,
+      "doc": "The sorted color stops [{ position: p in [0,1], color: [per-channel] }, …], spanning position 0 to 1."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "paint.linear_gradient is a closed-form per-channel interpolation verified by stop-exactness, monotonic parameterization, and translation covariance; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "id": "image.assemble_channels@1",
+  "impl_version": 1,
+  "summary": "Pack up to four Field1 scalar fields into an interleaved Image with a requested channel layout; channel count and extent are validated.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "ch0",
+      "kind": "Field1",
+      "required": true,
+      "doc": "The first channel (Field1) to pack into the image."
+    },
+    {
+      "name": "ch1",
+      "kind": "Field1",
+      "required": false,
+      "doc": "The second channel (Field1) to pack into the image."
+    },
+    {
+      "name": "ch2",
+      "kind": "Field1",
+      "required": false,
+      "doc": "The third channel (Field1) to pack into the image."
+    },
+    {
+      "name": "ch3",
+      "kind": "Field1",
+      "required": false,
+      "doc": "The fourth channel (Field1) to pack into the image."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The assembled interleaved image."
+    }
+  ],
+  "params": [
+    {
+      "name": "layout",
+      "type": "string",
+      "required": true,
+      "choices": [
+        "gray",
+        "gray-a",
+        "rgb",
+        "rgba"
+      ],
+      "doc": "The channel layout of the assembled image; its channel count must equal the number of wired channel ports."
+    },
+    {
+      "name": "color",
+      "type": "string",
+      "required": false,
+      "default": "raw-linear",
+      "choices": [
+        "srgb",
+        "linear-srgb",
+        "raw-linear"
+      ],
+      "doc": "The color transfer encoding of the assembled image."
+    },
+    {
+      "name": "range",
+      "type": "string",
+      "required": false,
+      "default": "display-referred",
+      "choices": [
+        "display-referred",
+        "scene-referred"
+      ],
+      "doc": "The reference-light range of the assembled image."
+    },
+    {
+      "name": "alpha",
+      "type": "string",
+      "required": false,
+      "default": "straight",
+      "choices": [
+        "premultiplied",
+        "straight"
+      ],
+      "doc": "The alpha representation of the assembled image."
+    },
+    {
+      "name": "semantic",
+      "type": "string",
+      "required": false,
+      "default": "material",
+      "choices": [
+        "color",
+        "material",
+        "normal",
+        "depth",
+        "confidence",
+        "distance",
+        "flow"
+      ],
+      "doc": "The semantic role of the assembled image."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.assemble_channels interleaves scalar fields verbatim into an image; correctness is verified by an exact assembly fixture and a round-trip with image.extract_channel, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

@@ -91,9 +91,9 @@ jobs:
           # §19: an unknown field fails predictably with the schema exit class (2).
           set +e; "$PAINTOP_BIN" validate fixtures/plans/unknown-field.json; code=$?; set -e
           test "$code" -eq 2 || { echo "expected exit 2, got $code" >&2; exit 1; }
-          # M1: op list exposes all 14 MVP ops.
+          # M1: op list exposes at least the 14 MVP ops (M1 adds more on top).
           n=$("$PAINTOP_BIN" op list --format json | jq '.operations | length')
-          test "$n" -eq 14 || { echo "op list shows $n ops, expected 14" >&2; exit 1; }
+          test "$n" -ge 14 || { echo "op list shows $n ops, expected >= 14" >&2; exit 1; }
           # M1: every op manifest passes verify-op.
           for manifest in ops/manifests/*.json; do
             op=$(jq -r '.id' "$manifest")
@@ -144,6 +144,59 @@ jobs:
         with:
           name: conformance-bundle
           path: target/conformance-bundle/
+          if-no-files-found: warn
+
+  # M1 exit-criteria gate (plan.md §19 M1; OP_CATALOG §18 P0 conformance set;
+  # AGENT_VERIFICATION §6): assert that the full P0 op set is exposed and has a
+  # manifest, every P0 op passes verify-op, and the NEW agent-authored banner
+  # scenario (gradient + blur + polygon composite, distinct from the blemish
+  # keystone) runs green with a passing no-change-outside-mask assertion, a
+  # reproducible rerun hash, and a leaking variant that fails with exit class 6.
+  # This is the executable `just m1-gate` / `ci/m1-gate.sh` checklist.
+  p0-conformance:
+    name: P0 conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Run the conformance integration tests directly (green loop + reproducible
+      # rerun + leaking variant for both the blemish keystone and the new banner).
+      - name: Run conformance integration tests (blemish + banner)
+        run: |
+          cargo test -p paintop-cpu --test blemish_conformance -- --nocapture
+          cargo test -p paintop-cpu --test banner_conformance -- --nocapture
+
+      # Build the CLI and xtask once, then run the full M1 gate against the
+      # prebuilt binaries (verify-op for every P0 op + the banner scenario).
+      - name: Build CLI and xtask
+        run: cargo build -p paintop-cli -p xtask
+
+      - name: M1 exit-criteria gate (op list + verify-op + banner scenario)
+        env:
+          PAINTOP_BIN: target/debug/paintop
+          XTASK_BIN: target/debug/xtask
+          M1_GATE_SKIP_CHECK: "1"
+        run: bash ci/m1-gate.sh
+
+      - name: Upload P0 conformance bundles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-conformance-bundles
+          path: target/m1-gate-banner-*/
           if-no-files-found: warn
 
   # Changed-op verification (AGENT_VERIFICATION §8.1, §14): for every op manifest

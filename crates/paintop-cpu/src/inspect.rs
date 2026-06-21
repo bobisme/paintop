@@ -66,6 +66,7 @@ fn channel_statistics(samples: &[f32], channels: u32) -> Vec<ChannelStats> {
             min: None,
             max: None,
             sum: 0.0,
+            sum_sq: 0.0,
             finite: 0,
             nonfinite: 0,
         };
@@ -77,7 +78,9 @@ fn channel_statistics(samples: &[f32], channels: u32) -> Vec<ChannelStats> {
         if sample.is_finite() {
             entry.min = Some(entry.min.map_or(sample, |m| m.min(sample)));
             entry.max = Some(entry.max.map_or(sample, |m| m.max(sample)));
-            entry.sum += f64::from(sample);
+            let value = f64::from(sample);
+            entry.sum += value;
+            entry.sum_sq = value.mul_add(value, entry.sum_sq);
             entry.finite += 1;
         } else {
             entry.nonfinite += 1;
@@ -130,6 +133,7 @@ pub fn inspect_value(value: &ResourceValue) -> Report {
         content_hash,
         diff: None,
         assertion: None,
+        histogram: None,
     }
 }
 

@@ -1,0 +1,137 @@
+{
+  "id": "image.create@1",
+  "impl_version": 1,
+  "summary": "Synthesize a constant Image from an explicit descriptor (extent, layout, color/range/alpha/semantic) and a per-channel fill, range-checked against the declared valid-range policy.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The synthesized constant image."
+    }
+  ],
+  "params": [
+    {
+      "name": "width",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The image width in pixels."
+    },
+    {
+      "name": "height",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The image height in pixels."
+    },
+    {
+      "name": "layout",
+      "type": "string",
+      "required": true,
+      "choices": [
+        "gray",
+        "gray-a",
+        "rgb",
+        "rgba"
+      ],
+      "doc": "The channel layout of the created image."
+    },
+    {
+      "name": "fill",
+      "type": "json",
+      "required": true,
+      "doc": "The per-channel constant fill value; one component per layout channel, each respecting the declared valid range."
+    },
+    {
+      "name": "color",
+      "type": "string",
+      "required": false,
+      "default": "srgb",
+      "choices": [
+        "srgb",
+        "linear-srgb",
+        "raw-linear"
+      ],
+      "doc": "The color transfer encoding of the created image."
+    },
+    {
+      "name": "range",
+      "type": "string",
+      "required": false,
+      "default": "display-referred",
+      "choices": [
+        "display-referred",
+        "scene-referred"
+      ],
+      "doc": "The reference-light range policy; display-referred bounds color channels to [0, 1]."
+    },
+    {
+      "name": "alpha",
+      "type": "string",
+      "required": false,
+      "default": "straight",
+      "choices": [
+        "premultiplied",
+        "straight"
+      ],
+      "doc": "The alpha representation of the created image."
+    },
+    {
+      "name": "semantic",
+      "type": "string",
+      "required": false,
+      "default": "color",
+      "choices": [
+        "color",
+        "material",
+        "normal",
+        "depth",
+        "confidence",
+        "distance",
+        "flow"
+      ],
+      "doc": "The semantic role of the created image."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.create synthesizes a constant raster whose every sample equals the requested fill; correctness is verified by exact descriptor/fill fixtures and range-policy rejection, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

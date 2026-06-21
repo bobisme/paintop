@@ -20,3 +20,4 @@
 pub use paintop_core as core;
 
 pub mod fixtures;
+pub mod metamorphic;

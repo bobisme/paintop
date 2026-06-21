@@ -691,6 +691,11 @@ pub struct ChannelStats {
     pub max: Option<f32>,
     /// The sum of the finite samples (used to derive the mean).
     pub sum: f64,
+    /// The sum of the squares of the finite samples (used to derive the
+    /// population variance, `OP_CATALOG` §12 `analyze.statistics`). Defaults to
+    /// `0.0` so a report serialized before this field existed still parses.
+    #[serde(default)]
+    pub sum_sq: f64,
     /// The number of finite samples.
     pub finite: u64,
     /// The number of non-finite (`NaN`/`±∞`) samples.
@@ -704,13 +709,31 @@ impl ChannelStats {
         if self.finite == 0 {
             None
         } else {
-            #[allow(
-                clippy::cast_precision_loss,
-                reason = "finite is a sample count; f64 mantissa covers realistic image sizes"
-            )]
-            let denom = self.finite as f64;
-            Some(self.sum / denom)
+            Some(self.sum / self.finite_f64())
         }
+    }
+
+    /// The population variance of the finite samples — the mean of the squares
+    /// minus the square of the mean — or `None` if there are no finite samples.
+    ///
+    /// The result is clamped at zero so floating-point cancellation on a
+    /// (near-)constant channel can never report a spuriously negative variance.
+    #[must_use]
+    pub fn variance(&self) -> Option<f64> {
+        let mean = self.mean()?;
+        let mean_sq = self.sum_sq / self.finite_f64();
+        Some(mean.mul_add(-mean, mean_sq).max(0.0))
+    }
+
+    /// The finite-sample count as an `f64` denominator.
+    #[must_use]
+    const fn finite_f64(&self) -> f64 {
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "finite is a sample count; f64 mantissa covers realistic image sizes"
+        )]
+        let denom = self.finite as f64;
+        denom
     }
 
     /// Whether every sample in the channel is finite.
@@ -747,6 +770,39 @@ pub struct DiffMetrics {
     /// when no pixel changed (an empty diff).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changed_bounds: Option<Rect>,
+}
+
+/// A per-channel histogram of an image or field over an explicit value domain
+/// (`OP_CATALOG` §12 `analyze.histogram@1`).
+///
+/// The domain `[domain_min, domain_max)` is split into `bins` equal-width bins.
+/// A finite sample `v` falls in bin `floor((v - domain_min) / width)`, clamped so
+/// the upper domain edge `domain_max` lands in the last bin (a half-open domain
+/// with an inclusive top edge). Samples strictly below `domain_min` are counted
+/// in [`below`](Self::below); samples strictly above `domain_max` in
+/// [`above`](Self::above); non-finite samples in [`nonfinite`](Self::nonfinite).
+/// The per-channel `counts` are row-major: channel `c`'s bin `b` is
+/// `counts[c * bins + b]`. Every reduction runs in a fixed row-major order, so
+/// the histogram is a deterministic function of the input and the domain.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistogramData {
+    /// The number of channels the histogram covers.
+    pub channels: u32,
+    /// The number of bins per channel.
+    pub bins: u32,
+    /// The inclusive lower edge of the value domain.
+    pub domain_min: f64,
+    /// The inclusive upper edge of the value domain (`domain_max > domain_min`).
+    pub domain_max: f64,
+    /// The per-channel bin counts, row-major (`counts[c * bins + b]`).
+    pub counts: Vec<u64>,
+    /// The per-channel count of finite samples strictly below `domain_min`.
+    pub below: Vec<u64>,
+    /// The per-channel count of finite samples strictly above `domain_max`.
+    pub above: Vec<u64>,
+    /// The per-channel count of non-finite (`NaN`/`±∞`) samples.
+    pub nonfinite: Vec<u64>,
 }
 
 /// The severity of an assertion's verdict (`IR_SPEC` §13).
@@ -821,6 +877,49 @@ pub struct AssertionOutcome {
     /// (leaking pixels, or non-finite-sample pixels), for the failure artifact.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub locations: Vec<[i64; 2]>,
+    /// The number of samples/pixels that violated the predicate
+    /// (`assert.range` out-of-range count, `assert.alpha_valid` invalid-pixel
+    /// count). Absent for assertions that report their count in a more specific
+    /// field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub violations: Option<u64>,
+    /// The single worst offending *value* (`assert.range`: the in-image sample
+    /// furthest outside `[min, max]`; `assert.alpha_valid`: the largest
+    /// premultiplied-constraint excess `|C| - α`). Absent when the assertion
+    /// reports no scalar worst value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worst_value: Option<f64>,
+    /// The tight bounding box of the *actual* changed region
+    /// (`assert.changed_bounds` only), or `None` when nothing changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_bounds: Option<Rect>,
+    /// The *expected* bounding box the changed region must stay within
+    /// (`assert.changed_bounds` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_bounds: Option<Rect>,
+}
+
+impl AssertionOutcome {
+    /// A bare verdict with no failure evidence: the assertion id, whether it
+    /// passed, and its severity. Every assertion-specific evidence field is
+    /// `None`/empty; the caller fills in the ones its assertion populates.
+    #[must_use]
+    pub fn new(assertion: impl Into<String>, passed: bool, severity: AssertionSeverity) -> Self {
+        Self {
+            assertion: assertion.into(),
+            passed,
+            severity,
+            max_abs_delta_outside: None,
+            changed_pixels_outside: None,
+            nonfinite_count: None,
+            worst_pixel: None,
+            locations: Vec::new(),
+            violations: None,
+            worst_value: None,
+            changed_bounds: None,
+            expected_bounds: None,
+        }
+    }
 }
 
 /// A structured analysis report (`OP_CATALOG` §1): the resource *value* an
@@ -858,6 +957,11 @@ pub struct Report {
     /// inspection or diff report, so it is omitted on serialization.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assertion: Option<AssertionOutcome>,
+    /// The per-channel histogram, present only on the report a histogram op
+    /// (`analyze.histogram@1`) produces (`OP_CATALOG` §12). Absent (`None`) for
+    /// every other report, so it is omitted on serialization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub histogram: Option<HistogramData>,
 }
 
 impl Report {

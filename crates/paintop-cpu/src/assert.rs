@@ -703,6 +703,10 @@ impl OpImplementation for NoChangeOutsideMask {
             nonfinite_count: None,
             worst_pixel: scan.worst,
             locations: scan.locations,
+            violations: None,
+            worst_value: None,
+            changed_bounds: None,
+            expected_bounds: None,
         };
         let report = assertion_report(before_desc.extent, outcome);
         Ok(single_report(report))
@@ -848,6 +852,10 @@ impl OpImplementation for Finite {
             nonfinite_count: Some(nonfinite),
             worst_pixel: worst,
             locations,
+            violations: None,
+            worst_value: None,
+            changed_bounds: None,
+            expected_bounds: None,
         };
         Ok(single_report(assertion_report(extent, outcome)))
     }
@@ -874,6 +882,7 @@ fn assertion_report(extent: Extent, outcome: AssertionOutcome) -> Report {
         content_hash: String::new(),
         diff: None,
         assertion: Some(outcome),
+        histogram: None,
     }
 }
 

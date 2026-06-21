@@ -1,0 +1,99 @@
+{
+  "id": "composite.blend@1",
+  "impl_version": 1,
+  "summary": "Blend a source image onto a destination through a coverage mask at an opacity, over a restricted exactly-pinned mode set (normal/over, add, subtract, multiply, screen, darken, lighten, difference) in premultiplied linear light; out = dst + opacity·mask·(B_mode(src, dst) − dst).",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "src",
+      "kind": "Image",
+      "required": true,
+      "doc": "The premultiplied linear-light source image being blended."
+    },
+    {
+      "name": "dst",
+      "kind": "Image",
+      "required": true,
+      "doc": "The premultiplied linear-light destination image blended onto."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage mask in [0, 1] modulating the blend; a full (all-ones) mask blends everywhere."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The blended image (the dst descriptor; same extent/layout)."
+    }
+  ],
+  "params": [
+    {
+      "name": "mode",
+      "type": "string",
+      "required": true,
+      "choices": [
+        "normal",
+        "over",
+        "add",
+        "subtract",
+        "multiply",
+        "screen",
+        "darken",
+        "lighten",
+        "difference"
+      ],
+      "doc": "The blend mode; one of the restricted exactly-pinned set."
+    },
+    {
+      "name": "opacity",
+      "type": "float",
+      "required": false,
+      "default": 1.0,
+      "doc": "The global blend opacity in [0, 1]; 0 is the identity on dst."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "composite.blend is a bit-exact per-channel blend over a restricted mode set verified by per-mode formula fixtures, opacity/mask identity, and commutativity properties; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

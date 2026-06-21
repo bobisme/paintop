@@ -14,10 +14,51 @@ conformance/
 ├── fixtures/
 │   └── blemish-input.png      deterministic procedural RGBA8 input (256×192)
 ├── plans/
-│   ├── blemish.json           the keystone plan: the 14-op non-SDF loop
-│   └── blemish-leak.json      the negative variant: MUST fail with exit 6
+│   ├── blemish.json           the M0 keystone plan: the 14-op non-SDF loop
+│   ├── blemish-leak.json      its negative variant: MUST fail with exit 6
+│   ├── banner.json            the M1 scenario: gradient + blur + polygon composite
+│   └── banner-leak.json       its negative variant: MUST fail with exit 6
 └── out/                       io.encode_image sink (gitignored, regenerated)
 ```
+
+## The M1 scenario: "an agent paints a masked gradient banner"
+
+`plans/banner.json` is the **second, distinct** agent-authored fixture edit
+demanded by the M1 exit criteria (`plan.md` §19 M1; `OP_CATALOG` §18;
+`AGENT_VERIFICATION` §6). It is deliberately different from the blemish keystone
+— it exercises the **new M1 P0 operations** end-to-end:
+
+```
+io.decode_image            decode the fixture PNG → image
+image.inspect              record extent / ranges / content hash (evidence)
+color.convert  (srgb→linear-srgb)
+alpha.premultiply          → the linear, premultiplied BASE
+paint.linear_gradient      synthesize a 3-stop linear-light color gradient        [NEW]
+alpha.premultiply          premultiply the gradient edit layer
+filter.gaussian_blur       soften the gradient (reference Gaussian, sigma 3.5)     [NEW]
+mask.polygon               authorized banner polygon (nonzero winding)            [NEW]
+composite.masked_replace   blend the blurred gradient over the base THROUGH it
+alpha.unpremultiply
+color.convert  (linear-srgb→srgb)
+analyze.diff               before/after diff summary (evidence)
+assert.no_change_outside_mask   the authorization-boundary check
+assert.finite              every composited sample is finite
+io.encode_image            write the final PNG
+```
+
+Like the keystone, `composite.masked_replace` is the **single authorization
+boundary** and `assert.no_change_outside_mask` proves nothing leaked outside the
+authorized polygon. Running it twice is byte-identical and hash-stable.
+`plans/banner-leak.json` authorizes the wide banner polygon but checks against a
+narrow inner polygon, so the assertion legitimately fails with exit class 6 and
+emits a minimal replay. All five behaviours (green loop, passing localization,
+reproducible rerun, leaking variant, full bundle) are asserted by
+`crates/paintop-cpu/tests/banner_conformance.rs` and the `just m1-gate` target.
+
+The M1 exit gate is the executable script `ci/m1-gate.sh` (`just m1-gate`): it
+runs `just check`, asserts `op list` exposes the full `OP_CATALOG` §18 P0 set
+(each with a manifest), runs `verify-op` for every P0 op, and drives this banner
+scenario through its green run, reproducible rerun, and leaking variant.
 
 ## What the plan does
 

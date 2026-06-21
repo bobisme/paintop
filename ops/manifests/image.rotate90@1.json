@@ -1,0 +1,69 @@
+{
+  "id": "image.rotate90@1",
+  "impl_version": 1,
+  "summary": "Exact quarter-turn rotation (turns * 90 deg clockwise, mod 4) as a bijective integer pixel remap; no resampling. Four turns is the identity; odd turns transpose the extent.",
+  "determinism": "exact",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image to rotate."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The rotated image (extent transposed for odd turns; all other descriptor fields preserved)."
+    }
+  ],
+  "params": [
+    {
+      "name": "turns",
+      "type": "integer",
+      "required": true,
+      "doc": "Number of 90-degree clockwise quarter-turns, taken modulo 4 (negative turns rotate counter-clockwise)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.rotate90 is a bijective integer pixel remap copying samples verbatim; correctness is verified by exact pixel-correspondence fixtures and the four-turn identity, not a perceptual-quality metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "id": "analyze.statistics@1",
+  "impl_version": 1,
+  "summary": "Reduce a resource to its per-channel finite statistics (count, min, max, sum, mean, population variance) over an optional coverage mask, using a stable pairwise reduction tree so the sums are deterministic.",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "resource",
+      "kind": "Image",
+      "required": true,
+      "doc": "The resource whose per-channel statistics are computed."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": false,
+      "doc": "An optional coverage mask: only strictly-positive-coverage pixels contribute (the whole resource when absent)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The statistics report: per-channel count, min, max, sum, mean, and variance."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

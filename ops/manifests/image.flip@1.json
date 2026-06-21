@@ -1,0 +1,74 @@
+{
+  "id": "image.flip@1",
+  "impl_version": 1,
+  "summary": "Exact axis reflection (horizontal / vertical / both) as a bijective integer pixel remap; no resampling. Involution: flipping twice is the identity.",
+  "determinism": "exact",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image to flip."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The reflected image (same extent and descriptor as the input)."
+    }
+  ],
+  "params": [
+    {
+      "name": "axis",
+      "type": "string",
+      "required": true,
+      "choices": [
+        "horizontal",
+        "vertical",
+        "both"
+      ],
+      "doc": "Reflection axis: horizontal (left<->right), vertical (top<->bottom), or both."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.flip is a bijective integer pixel remap copying samples verbatim; correctness is verified by exact pixel-correspondence fixtures and the double-flip involution identity, not a perceptual-quality metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "id": "image.crop@1",
+  "impl_version": 1,
+  "summary": "Exact pixel selection of a half-open rectangle [x0, x1) x [y0, y1) within the input image; the rect must lie fully inside the input extent.",
+  "determinism": "exact",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image to crop."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The cropped image (extent = rect width x height; all other descriptor fields preserved)."
+    }
+  ],
+  "params": [
+    {
+      "name": "rect",
+      "type": "json",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The half-open crop rectangle {x0, y0, x1, y1} in input pixel space; upper bounds are exclusive and must lie within the input extent."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "image.crop is an exact verbatim sub-window copy verified by pixel-selection fixtures, half-open boundary cases, and the crop/pad round-trip identity; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

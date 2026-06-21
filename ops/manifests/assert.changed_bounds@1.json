@@ -1,0 +1,92 @@
+{
+  "id": "assert.changed_bounds@1",
+  "impl_version": 1,
+  "summary": "Assert that the region a before -> after edit changed (beyond a threshold) is contained in an expected box. Change escaping the box fails the assertion and records the actual changed bounds, the expected box, and the escaping-pixel count and worst pixel.",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "before",
+      "kind": "Image",
+      "required": true,
+      "doc": "The reference image the change is measured against."
+    },
+    {
+      "name": "after",
+      "kind": "Image",
+      "required": true,
+      "doc": "The edited image whose change from `before` is checked."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The assertion verdict: pass/fail plus the actual changed bounds, the expected box, and the escaping-pixel count and worst pixel."
+    }
+  ],
+  "params": [
+    {
+      "name": "bounds",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The expected box as the four pixel edges [x0, y0, x1, y1] (passed as the params `x0`, `y0`, `x1`, `y1`)."
+    },
+    {
+      "name": "threshold",
+      "type": "float",
+      "unit": "ratio",
+      "required": false,
+      "default": 0.0,
+      "doc": "The absolute delta a pixel must strictly exceed to count as changed."
+    },
+    {
+      "name": "severity",
+      "type": "string",
+      "required": false,
+      "default": "error",
+      "choices": [
+        "error",
+        "warning",
+        "metric"
+      ],
+      "doc": "How a violation affects the run: `error` fails the run, `warning` marks the evidence, `metric` never fails."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

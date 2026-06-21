@@ -1,0 +1,92 @@
+{
+  "id": "filter.gaussian_blur@1",
+  "impl_version": 1,
+  "summary": "Isotropic Gaussian blur: a normalized sampled Gaussian (radius ceil(3*sigma), sigma->0 identity cutoff) convolved through the direct convolution reference.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The Image or Field1 to blur (each channel blurred independently)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Image",
+      "doc": "The blurred Image or Field1 (same kind and extent as the input)."
+    }
+  ],
+  "params": [
+    {
+      "name": "sigma",
+      "type": "float",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The Gaussian standard deviation in pixels; sigma <= 1e-3 is the identity."
+    },
+    {
+      "name": "mode",
+      "type": "string",
+      "required": false,
+      "default": "clamp",
+      "choices": [
+        "constant",
+        "transparent",
+        "clamp",
+        "mirror",
+        "wrap"
+      ],
+      "doc": "The boundary mode forwarded to the convolution."
+    },
+    {
+      "name": "sigma_max",
+      "type": "float",
+      "unit": "pixels",
+      "required": false,
+      "default": 512.0,
+      "doc": "Upper bound on sigma; a larger request is rejected."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "filter.gaussian_blur convolves a normalized sampled Gaussian verified by analytic properties (unit-sum positive kernel, constant preservation, 90-degree isotropy, the sigma-semigroup G_s1*G_s2 ~ G_sqrt(s1^2+s2^2), the blurred-impulse variance match, and the sigma->0 identity cutoff) and a differential check against filter.convolve with the same kernel; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

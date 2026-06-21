@@ -1,0 +1,75 @@
+{
+  "id": "paint.fill@1",
+  "impl_version": 1,
+  "summary": "Paint a typed per-channel constant value into an image through a coverage mask (out = base + m·(value − base)); where the mask is 0 the output is the base bit-for-bit, where it is 1 the output is the value. The value is range-checked against the image's valid-range policy.",
+  "determinism": "exact",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image painted into; kept where the mask is 0."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage mask in [0, 1] selecting the fill, co-located with the image."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The masked-filled image (same descriptor as the input image)."
+    }
+  ],
+  "params": [
+    {
+      "name": "value",
+      "type": "json",
+      "required": true,
+      "doc": "The per-channel constant fill value; one component per layout channel, each respecting the image's declared valid range."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "paint.fill is a bit-exact per-channel masked blend of a typed constant verified by mask-extreme exactness, outside-region bit-identity, and soft-mask lerp fixtures; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}
