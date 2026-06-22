@@ -1,0 +1,104 @@
+{
+  "id": "field.fbm@1",
+  "impl_version": 1,
+  "summary": "Sum `octaves` of hash-based value noise at frequency*lacunarity^o and amplitude gain^o, amplitude-normalized so the Field1 stays in [-1, 1] regardless of octave count (hash-of-coordinate, not a sequential RNG).",
+  "determinism": "bounded",
+  "roi": {
+    "category": "pointwise"
+  },
+  "outputs": [
+    {
+      "name": "field",
+      "kind": "Field1",
+      "doc": "The amplitude-normalized fbm scalar field in [-1, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "width",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The output field width in pixels."
+    },
+    {
+      "name": "height",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The output field height in pixels."
+    },
+    {
+      "name": "frequency",
+      "type": "float",
+      "required": false,
+      "default": 1.0,
+      "doc": "Lattice cells per 64 pixels (the base spatial frequency); strictly positive."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "required": false,
+      "default": 0,
+      "doc": "The 64-bit seed; the noise is a hash of (coordinate, seed), not a sequential RNG."
+    },
+    {
+      "name": "octaves",
+      "type": "integer",
+      "required": false,
+      "default": 4,
+      "doc": "The number of summed octaves, in 1..=32."
+    },
+    {
+      "name": "lacunarity",
+      "type": "float",
+      "required": false,
+      "default": 2.0,
+      "doc": "The per-octave frequency multiplier (>0); classically 2."
+    },
+    {
+      "name": "gain",
+      "type": "float",
+      "required": false,
+      "default": 0.5,
+      "doc": "The per-octave amplitude multiplier (persistence) in (0, 1]; classically 0.5."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "field.fbm is an amplitude-normalized sum of hash-based value noise verified by analytic properties (bit-exact reruns, tiling/order invariance, seed sensitivity, octave-count-independent [-1, 1] range via amplitude normalization); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

@@ -698,6 +698,8 @@ const fn report_placeholder(descriptor: &ResourceDescriptor) -> paintop_ir::Repo
         assertion: None,
         histogram: None,
         components: None,
+        frequency_energy: None,
+        solver: None,
     }
 }
 

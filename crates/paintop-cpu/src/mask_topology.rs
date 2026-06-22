@@ -571,6 +571,8 @@ fn component_report(extent: Extent, conn: Connectivity, labeling: &Labeling) -> 
             count: labeling.count,
             areas: labeling.areas.clone(),
         }),
+        frequency_energy: None,
+        solver: None,
     }
 }
 

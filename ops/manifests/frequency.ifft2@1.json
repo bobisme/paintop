@@ -1,0 +1,61 @@
+{
+  "id": "frequency.ifft2@1",
+  "impl_version": 1,
+  "summary": "Inverse 2-D DFT of a complex Spectrum back to a real spatial plane (Field1 for one channel, Image otherwise; full 1/(W*H) normalization, imaginary residual discarded).",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "spectrum",
+      "kind": "Spectrum",
+      "required": true,
+      "doc": "The complex frequency spectrum to invert."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The reconstructed real spatial plane (Field1 for a single channel)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "the inverse DFT is verified as the exact inverse of fft2 (reconstruction round trip within tolerance) and the DC-only-spectrum constant-plane fixture, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

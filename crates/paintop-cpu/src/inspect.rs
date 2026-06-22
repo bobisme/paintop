@@ -135,6 +135,8 @@ pub fn inspect_value(value: &ResourceValue) -> Report {
         assertion: None,
         histogram: None,
         components: None,
+        frequency_energy: None,
+        solver: None,
     }
 }
 

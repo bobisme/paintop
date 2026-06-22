@@ -1,0 +1,129 @@
+{
+  "id": "optimize.local@1",
+  "impl_version": 1,
+  "summary": "Contract-driven local optimizer: inside the mask, minimize the declared objective data_weight·Σ(u−target)² + smooth_weight·Σ‖∇u‖² by deterministic row-major gradient descent, freezing pixels outside the mask. smooth_weight = 0 has the known minimum u = target. Deterministic (bit-identical reruns); the report carries the objective trajectory, stop reason, and seed. enabled = false disables it via a typed policy error.",
+  "determinism": "reproducible",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "init",
+      "kind": "Image",
+      "required": true,
+      "doc": "The initial candidate image: the descent's starting guess inside the mask and the frozen value outside it."
+    },
+    {
+      "name": "target",
+      "kind": "Image",
+      "required": true,
+      "doc": "The data-term target the masked interior is driven toward."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage mask selecting the free region to optimize (> 0.5 is free; elsewhere is frozen)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "candidate",
+      "kind": "Image",
+      "doc": "The optimized image (the init descriptor; same extent/layout)."
+    },
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The optimizer report carrying SolverData (iterations, objective history, stop reason, tolerance, final objective, seed)."
+    }
+  ],
+  "params": [
+    {
+      "name": "data_weight",
+      "type": "float",
+      "required": false,
+      "default": 1.0,
+      "doc": "The objective weight on the masked data term Σ(u−target)² (>= 0)."
+    },
+    {
+      "name": "smooth_weight",
+      "type": "float",
+      "required": false,
+      "default": 0.0,
+      "doc": "The objective weight on the masked smoothness term Σ‖∇u‖² (>= 0). 0 leaves the known minimum u = target."
+    },
+    {
+      "name": "step",
+      "type": "float",
+      "required": false,
+      "default": 0.25,
+      "doc": "The fixed gradient-descent step size (the schedule); a finite value > 0."
+    },
+    {
+      "name": "max_iterations",
+      "type": "integer",
+      "required": false,
+      "default": 500,
+      "doc": "The maximum descent iterations before stopping at the cap, in 1..=100000."
+    },
+    {
+      "name": "tolerance",
+      "type": "float",
+      "required": false,
+      "default": 1e-6,
+      "doc": "The relative-objective convergence tolerance in (0, 1)."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "required": false,
+      "default": 0,
+      "doc": "The schedule seed, carried into the report as the run identity (the descent is deterministic and does not consume it)."
+    },
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "doc": "The policy gate: false disables the optimizer, returning a typed policy error instead of running."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "optimize.local is a deterministic local optimizer verified by a known-minimum analytic fixture (smooth_weight = 0 recovers the target inside the mask), the objective trajectory, bit-identical reruns, and the max-iteration / no-progress stop rules; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

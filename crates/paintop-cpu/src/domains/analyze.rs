@@ -9,6 +9,7 @@ use paintop_ir::{Error, OperationRegistry};
 
 use crate::bounds_assert::{self, ChangedBounds};
 use crate::diff::{self, Diff};
+use crate::frequency_energy::{self, FrequencyEnergy};
 use crate::statistics::{self, Histogram, Statistics};
 
 /// Register every `analyze.*` manifest and implementation, in fixed
@@ -25,6 +26,12 @@ pub(crate) fn register(reg: &mut OperationRegistry, impls: &mut ImplRegistry) ->
 
     reg.register(Diff::manifest()?)?;
     impls.register(diff::DIFF_OP_ID.parse()?, Box::new(Diff::new()))?;
+
+    reg.register(FrequencyEnergy::manifest()?)?;
+    impls.register(
+        frequency_energy::FREQUENCY_ENERGY_OP_ID.parse()?,
+        Box::new(FrequencyEnergy::new()),
+    )?;
 
     reg.register(Histogram::manifest()?)?;
     impls.register(

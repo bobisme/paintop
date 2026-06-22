@@ -9,6 +9,7 @@ use paintop_ir::{Error, OperationRegistry};
 
 use crate::assert::{self, Finite, NoChangeOutsideMask};
 use crate::bounds_assert::{self, AssertAlphaValid, AssertChangedBounds, AssertRange};
+use crate::frequency_preserved::{self, FrequencyPreserved};
 
 /// Register every `assert.*` manifest and implementation, in fixed declaration
 /// order.
@@ -30,6 +31,12 @@ pub(crate) fn register(reg: &mut OperationRegistry, impls: &mut ImplRegistry) ->
 
     reg.register(Finite::manifest()?)?;
     impls.register(assert::FINITE_OP_ID.parse()?, Box::new(Finite::new()))?;
+
+    reg.register(FrequencyPreserved::manifest()?)?;
+    impls.register(
+        frequency_preserved::FREQUENCY_PRESERVED_OP_ID.parse()?,
+        Box::new(FrequencyPreserved::new()),
+    )?;
 
     reg.register(NoChangeOutsideMask::manifest()?)?;
     impls.register(

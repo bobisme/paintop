@@ -1,0 +1,101 @@
+{
+  "id": "repair.screened_poisson@1",
+  "impl_version": 1,
+  "summary": "Screened-Poisson reconstruction with explicit lambda data-fidelity weight: inside the mask solve (Δ - lambda·I)u = Δguidance - lambda·anchor with a Dirichlet anchor boundary, per channel by row-major Gauss-Seidel. lambda = 0 is pure Poisson (guidance gradients); large lambda approaches the anchor. Deterministic (bit-identical reruns); the report carries SolverData.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "guidance",
+      "kind": "Image",
+      "required": true,
+      "doc": "The image whose gradients drive the masked interior (the guidance divergence Δguidance)."
+    },
+    {
+      "name": "anchor",
+      "kind": "Image",
+      "required": true,
+      "doc": "The data-fidelity target: the Dirichlet boundary and the field the interior is pulled toward with weight lambda."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage mask selecting the interior region to reconstruct (> 0.5 is interior)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "candidate",
+      "kind": "Image",
+      "doc": "The reconstructed image (the anchor descriptor; same extent/layout)."
+    },
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The solver report carrying SolverData (iterations, residual history, stop reason, tolerance, final residual)."
+    }
+  ],
+  "params": [
+    {
+      "name": "lambda",
+      "type": "float",
+      "required": false,
+      "default": 0.0,
+      "doc": "The data-fidelity weight (>= 0). 0 is pure Poisson (guidance gradients); a large value pulls the interior toward the anchor."
+    },
+    {
+      "name": "max_iterations",
+      "type": "integer",
+      "required": false,
+      "default": 2000,
+      "doc": "The maximum Gauss-Seidel sweeps before the solver stops at the cap, in 1..=100000."
+    },
+    {
+      "name": "tolerance",
+      "type": "float",
+      "required": false,
+      "default": 1e-6,
+      "doc": "The relative-residual convergence tolerance in (0, 1)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "repair.screened_poisson is a screened-Poisson solver verified by analytic lambda-limit fixtures (lambda = 0 recovers pure Poisson, large lambda snaps to the anchor), boundary continuity, bit-identical reruns, and a residual-history convergence record; there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

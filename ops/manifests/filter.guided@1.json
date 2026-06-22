@@ -1,0 +1,82 @@
+{
+  "id": "filter.guided@1",
+  "impl_version": 1,
+  "summary": "Guided filter (He et al.): filter an input under a guide's structure via a per-window local linear model q = a*I + b fitted by ridge regression (box radius, epsilon); edge-preserving, flat input preserved exactly.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The Image or Field1 to filter (per channel)."
+    },
+    {
+      "name": "guide",
+      "kind": "Image",
+      "required": true,
+      "doc": "The guide Image or Field1 whose structure the filter follows; a single-channel guide is broadcast across the input's channels."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Image",
+      "doc": "The guided-filtered result (same kind and extent as the input)."
+    }
+  ],
+  "params": [
+    {
+      "name": "radius",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The box-window radius (the window side is 2*radius + 1); >= 1."
+    },
+    {
+      "name": "epsilon",
+      "type": "float",
+      "required": true,
+      "doc": "The ridge regularization bounding the linear coefficient; larger epsilon smooths flatter regions. Non-negative."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "filter.guided is a closed-form local-linear-model filter verified by analytic properties (flat-input identity, flat-guide box-mean degeneracy, self-guided edge preservation, the per-window ridge fit against an independent box-statistics reference); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

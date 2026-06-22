@@ -1,0 +1,88 @@
+{
+  "id": "frequency.gaussian_pyramid@1",
+  "impl_version": 1,
+  "summary": "Build a multi-resolution Gaussian pyramid: level 0 is the input, each deeper level a fixed separable Gaussian pre-blur decimated 2:1 under the declared floor/ceil odd-size phase. Output is a single Pyramid resource.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The Image or Field1 base (level 0) of the pyramid."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "pyramid",
+      "kind": "Pyramid",
+      "doc": "The multi-resolution Gaussian pyramid (level 0 = input)."
+    }
+  ],
+  "params": [
+    {
+      "name": "levels",
+      "type": "integer",
+      "required": true,
+      "doc": "The number of levels, level 0 the base (1..=64)."
+    },
+    {
+      "name": "sigma",
+      "type": "float",
+      "unit": "pixels",
+      "required": false,
+      "default": 1.0,
+      "doc": "The pre-decimation Gaussian standard deviation (anti-alias low-pass)."
+    },
+    {
+      "name": "phase",
+      "type": "string",
+      "required": false,
+      "default": "floor",
+      "choices": [
+        "floor",
+        "ceil"
+      ],
+      "doc": "The odd-size rounding rule mapping a parent extent to its child."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "the Gaussian pyramid is verified by the level-extent convention, constant preservation, and the deterministic blur+decimate chain, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

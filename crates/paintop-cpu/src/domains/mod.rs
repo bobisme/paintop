@@ -23,11 +23,15 @@ pub mod assert;
 pub mod color;
 pub mod composite;
 pub mod debug;
+pub mod field;
 pub mod filter;
+pub mod frequency;
 pub mod image;
 pub mod io;
 pub mod mask;
+pub mod optimize;
 pub mod paint;
+pub mod repair;
 pub mod sdf;
 
 /// A domain's registration function: adds every op in that domain to both the
@@ -48,6 +52,10 @@ pub(crate) const REGISTERS: &[DomainRegister] = &[
     paint::register,
     composite::register,
     filter::register,
+    frequency::register,
+    field::register,
+    repair::register,
+    optimize::register,
     analyze::register,
     assert::register,
     debug::register,

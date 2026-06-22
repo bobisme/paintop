@@ -1,0 +1,110 @@
+{
+  "id": "repair.patch_field@1",
+  "impl_version": 1,
+  "summary": "Compute an approximate nearest-neighbour patch-correspondence field (PatchField) from a source image into a target image via deterministic, seeded PatchMatch. Optional target/source masks select the hole pixels to match and the eligible source anchors. Emits the field plus a convergence report.",
+  "determinism": "reproducible",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "source",
+      "kind": "Image",
+      "required": true,
+      "doc": "The source image coherent patches are drawn from."
+    },
+    {
+      "name": "target",
+      "kind": "Image",
+      "required": true,
+      "doc": "The target image each correspondence is matched against."
+    },
+    {
+      "name": "target_mask",
+      "kind": "Mask",
+      "required": false,
+      "doc": "Optional: target pixels (> 0.5) needing a correspondence (the hole). Absent means every target pixel is matched."
+    },
+    {
+      "name": "source_mask",
+      "kind": "Mask",
+      "required": false,
+      "doc": "Optional: source pixels (> 0.5) eligible as anchors (the known region). Absent means every source pixel is eligible."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "field",
+      "kind": "PatchField",
+      "doc": "The approximate nearest-neighbour field (src_x, src_y, cost per target pixel)."
+    },
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The search report carrying SolverData (iterations, per-iteration cost history, fixed-point/stop reason)."
+    }
+  ],
+  "params": [
+    {
+      "name": "radius",
+      "type": "integer",
+      "required": true,
+      "doc": "The patch half-window: a (2r+1)x(2r+1) patch (0..=128)."
+    },
+    {
+      "name": "iterations",
+      "type": "integer",
+      "required": false,
+      "default": 8,
+      "doc": "The number of propagation/random-search sweeps (1..=256)."
+    },
+    {
+      "name": "seed",
+      "type": "integer",
+      "required": false,
+      "default": 0,
+      "doc": "The deterministic search seed (hash-of-coordinate RNG)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "differential": {
+        "status": "not-applicable",
+        "reason": "patch_field has a single cpu.reference implementation; it is verified against an independent brute-force NNF oracle, not a second backend"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "the patch field is verified by exact oracle agreement and seeded determinism, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

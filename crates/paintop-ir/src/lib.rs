@@ -57,10 +57,12 @@ pub use resolve::{
 pub use resource::{
     AlphaRepresentation, AssertionOutcome, AssertionSeverity, BoundaryMode, ChannelLayout,
     ChannelStats, ColorEncoding, ColorRange, ComponentsData, CoordinateConvention, DiffMetrics,
-    Extent, FieldArity, FieldDescriptor, HistogramData, ImageDescriptor, LabelMapDescriptor,
-    MaskDescriptor, MaskMeaning, Rect, Report, ReportDescriptor, RequestedColorEncoding,
-    ResourceDescriptor, ScalarType, SdfDescriptor, SdfSign, SdfUnits, SemanticRole, ValidRange,
-    VectorEncoding, VectorNormalization, VectorSpace,
+    DownsampleFactor, Extent, FieldArity, FieldDescriptor, FrequencyEnergyData, HistogramData,
+    ImageDescriptor, LabelMapDescriptor, MAX_PATCH_RADIUS, MAX_PYRAMID_LEVELS, MaskDescriptor,
+    MaskMeaning, PATCH_FIELD_CHANNELS, PatchFieldDescriptor, PyramidDescriptor, PyramidPhase, Rect,
+    Report, ReportDescriptor, RequestedColorEncoding, ResourceDescriptor, ScalarType,
+    SdfDescriptor, SdfSign, SdfUnits, SemanticRole, SolverData, SolverStopReason,
+    SpectrumDescriptor, ValidRange, VectorEncoding, VectorNormalization, VectorSpace,
 };
 pub use scan::{E_DUPLICATE_KEY, E_INVALID_NUMBER, scan_json};
 pub use simplify::{

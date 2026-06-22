@@ -1,0 +1,118 @@
+{
+  "id": "assert.frequency_preserved@1",
+  "impl_version": 1,
+  "summary": "Assert an edit preserved per-band frequency energy outside the edited region (within a relative tolerance); FAILS with the worst band's energy delta when a region is over-blurred or sharpened.",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "before",
+      "kind": "Image",
+      "required": true,
+      "doc": "The edit's input Image/Field1."
+    },
+    {
+      "name": "after",
+      "kind": "Image",
+      "required": true,
+      "doc": "The edit's output Image/Field1 (same extent as `before`)."
+    },
+    {
+      "name": "mask",
+      "kind": "Mask",
+      "required": false,
+      "doc": "An optional coverage mask marking the EDITED region; preservation is checked over its complement (the whole image when absent)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The assertion report: per-band before/after energy and the verdict."
+    }
+  ],
+  "params": [
+    {
+      "name": "bands",
+      "type": "integer",
+      "required": true,
+      "doc": "The number of bands (= pyramid levels), finest first."
+    },
+    {
+      "name": "tolerance",
+      "type": "float",
+      "required": false,
+      "default": 0.05,
+      "doc": "The maximum allowed relative per-band energy change."
+    },
+    {
+      "name": "decomposition",
+      "type": "string",
+      "required": false,
+      "default": "laplacian",
+      "choices": [
+        "laplacian",
+        "gaussian"
+      ],
+      "doc": "The decomposition to compare over."
+    },
+    {
+      "name": "phase",
+      "type": "string",
+      "required": false,
+      "default": "floor",
+      "choices": [
+        "floor",
+        "ceil"
+      ],
+      "doc": "The odd-size rounding rule for the pyramid level extents."
+    },
+    {
+      "name": "severity",
+      "type": "string",
+      "required": false,
+      "default": "error",
+      "choices": [
+        "error",
+        "warning",
+        "metric"
+      ],
+      "doc": "Whether a failure fails the run (error), warns, or is a metric."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

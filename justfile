@@ -86,6 +86,20 @@ m2-gate:
 m3-gate:
     bash ci/m3-gate.sh
 
+# M4 exit-criteria gate (plan.md §19 / §1428-§1446 "M4 — classical magic"): runs
+# `just check`, then asserts the FIVE M4 criteria — (1) every solver-style op
+# (Poisson, screened-Poisson, reaction-diffusion, PatchMatch, local optimizer)
+# exposes convergence metrics in its report, (2) every iterative/seeded op has
+# deterministic seed/ordering with bit-identical reruns asserted, (3) every M4 op
+# passes verify-op against a synthetic known/bounded fixture, (4) solver perf +
+# memory scale are characterized and emitted as artifacts, (5) orientation/
+# frequency ops cover their covariance/preservation contracts — then re-runs the
+# M1/M1.5/M2/M3 gates to prove no regression and collects the characterization +
+# verify-op artifacts. This is the executable M4 checklist. (EDT/SDF shipped in
+# M1.5; it is re-verified via the re-run M1.5 gate, not re-asserted here.)
+m4-gate:
+    bash ci/m4-gate.sh
+
 # Run `cargo xtask verify-op` for every MVP op manifest under ops/manifests/.
 verify-ops:
     #!/usr/bin/env bash

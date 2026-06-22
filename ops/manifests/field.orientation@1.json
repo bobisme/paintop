@@ -1,0 +1,66 @@
+{
+  "id": "field.orientation@1",
+  "impl_version": 1,
+  "summary": "Diagonalize a structure-tensor Field3 (Jxx, Jxy, Jyy) per pixel into a unit Field2 orientation (smaller-eigenvalue eigenvector, canonical sign ux>=0) and a Field1 coherence ((l_max - l_min)/(l_max + l_min))^2.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "pointwise"
+  },
+  "inputs": [
+    {
+      "name": "tensor",
+      "kind": "Field3",
+      "required": true,
+      "doc": "The structure tensor's (Jxx, Jxy, Jyy) per pixel (a Field3)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "orientation",
+      "kind": "Field2",
+      "doc": "Unit orientation vector (smaller-eigenvalue eigenvector; zero where the tensor is isotropic)."
+    },
+    {
+      "name": "coherence",
+      "kind": "Field1",
+      "doc": "Anisotropy coherence in [0, 1]: ((l_max - l_min)/(l_max + l_min))^2."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "field.orientation is a closed-form per-pixel eigenanalysis verified by analytic properties (oriented-grating angle recovery, coherence ~1 on a clean edge and ~0 on isotropic noise, deterministic eigenvector sign convention, rotation covariance); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

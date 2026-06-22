@@ -1,0 +1,123 @@
+{
+  "id": "field.reaction_diffusion@1",
+  "impl_version": 1,
+  "summary": "Explicit-step Gray-Scott reaction-diffusion solver: evolve two Field1 concentrations (u, v) for `steps` forward-Euler steps under a wrap-boundary Laplacian, deterministic given seed + step count, with a stability guard and a SolverData report (step count, stability number, residual history, energy).",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "extent_from",
+      "kind": "Image",
+      "required": true,
+      "doc": "The resource whose pixel extent the solved fields match."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "u",
+      "kind": "Field1",
+      "doc": "The solved u concentration field."
+    },
+    {
+      "name": "v",
+      "kind": "Field1",
+      "doc": "The solved v concentration field (the patterned species)."
+    },
+    {
+      "name": "report",
+      "kind": "Report",
+      "doc": "The solver report carrying SolverData (steps, stability number/limit, residual history, total energy)."
+    }
+  ],
+  "params": [
+    {
+      "name": "diffusion_u",
+      "type": "float",
+      "required": false,
+      "default": 0.16,
+      "doc": "The u diffusion rate Du (>= 0); Du*dt*4 must stay <= 1 for stability."
+    },
+    {
+      "name": "diffusion_v",
+      "type": "float",
+      "required": false,
+      "default": 0.08,
+      "doc": "The v diffusion rate Dv (>= 0); Dv*dt*4 must stay <= 1 for stability."
+    },
+    {
+      "name": "feed",
+      "type": "float",
+      "required": false,
+      "default": 0.06,
+      "doc": "The Gray-Scott feed rate F."
+    },
+    {
+      "name": "kill",
+      "type": "float",
+      "required": false,
+      "default": 0.062,
+      "doc": "The Gray-Scott kill rate k."
+    },
+    {
+      "name": "dt",
+      "type": "float",
+      "required": false,
+      "default": 1.0,
+      "doc": "The explicit time step (> 0)."
+    },
+    {
+      "name": "steps",
+      "type": "integer",
+      "required": false,
+      "default": 1000,
+      "doc": "The number of explicit steps, in 1..=100000."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "unit": "pixels",
+      "required": false,
+      "default": 0,
+      "doc": "The seed for the initial v-perturbation jitter (hash-of-coordinate, not an RNG)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "field.reaction_diffusion is an explicit-step PDE solver verified by analytic and statistical properties (seeded bit-identical reruns, the explicit-stability guard rejecting unstable steps, bounded pattern statistics on a known Turing parameter set, a residual-history convergence record); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

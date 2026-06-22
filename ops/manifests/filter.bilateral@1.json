@@ -1,0 +1,76 @@
+{
+  "id": "filter.bilateral@1",
+  "impl_version": 1,
+  "summary": "Bilateral filter (Tomasi & Manduchi): edge-preserving weighted average with a spatial Gaussian (spatial_sigma) times a range Gaussian (range_sigma) over the joint per-channel intensity distance; exact direct reference.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The Image or Field1 to filter (range distance is the joint per-channel intensity difference)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Image",
+      "doc": "The bilaterally-filtered result (same kind and extent as the input)."
+    }
+  ],
+  "params": [
+    {
+      "name": "spatial_sigma",
+      "type": "float",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The spatial Gaussian standard deviation in pixels (window radius is ceil(3*spatial_sigma)); strictly positive."
+    },
+    {
+      "name": "range_sigma",
+      "type": "float",
+      "required": true,
+      "doc": "The range (intensity) Gaussian standard deviation; smaller values preserve sharper edges. Strictly positive."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "filter.bilateral is a closed-form edge-preserving weighted average verified by analytic properties (constant-image identity, flat-region smoothing, step-edge preservation, the large-range-sigma Gaussian limit, the weighted average against an independent direct reference); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

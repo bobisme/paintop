@@ -1,0 +1,61 @@
+{
+  "id": "frequency.fft2@1",
+  "impl_version": 1,
+  "summary": "Forward 2-D DFT of a real Image/Field1 plane into a typed complex Spectrum (non-normalized forward transform, DC at the array origin, channels transformed independently).",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The real Image or Field1 spatial plane to transform."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "spectrum",
+      "kind": "Spectrum",
+      "doc": "The complex frequency spectrum (interleaved real/imaginary per bin)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "the forward DFT is verified by the fft2->ifft2 reconstruction round trip, the constant-plane pure-DC fixture, and the known-sinusoid spectral-peak fixture, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

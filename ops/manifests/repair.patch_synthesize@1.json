@@ -1,0 +1,83 @@
+{
+  "id": "repair.patch_synthesize@1",
+  "impl_version": 1,
+  "summary": "Synthesise a candidate fill image from a PatchField: inside the hole mask, gather each pixel from the source at the field's anchor; outside the hole, copy the target verbatim (outside-hole identity).",
+  "determinism": "exact",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "source",
+      "kind": "Image",
+      "required": true,
+      "doc": "The source image patches are gathered from."
+    },
+    {
+      "name": "target",
+      "kind": "Image",
+      "required": true,
+      "doc": "The target image; pixels outside the hole are copied verbatim."
+    },
+    {
+      "name": "field",
+      "kind": "PatchField",
+      "required": true,
+      "doc": "The patch correspondence field mapping each target pixel to a source anchor."
+    },
+    {
+      "name": "hole",
+      "kind": "Mask",
+      "required": true,
+      "doc": "The coverage mask selecting the region to fill (> 0.5 is filled from the source)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The candidate fill: source-gathered inside the hole, target outside."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "differential": {
+        "status": "not-applicable",
+        "reason": "patch_synthesize is an exact per-pixel gather with a single cpu.reference implementation; its analytic fixtures pin the exact output"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "the fill is verified by exact sample equality (outside-hole identity, anchored gather), not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

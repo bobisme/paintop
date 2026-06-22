@@ -1,0 +1,86 @@
+{
+  "id": "field.domain_warp@1",
+  "impl_version": 1,
+  "summary": "Warp a source Image/Field by a per-pixel Field2 displacement: output (x, y) reads the source at (x + 0.5 + dx, y + 0.5 + dy) with the M1 bilinear/nearest sampler and an explicit boundary mode. Zero displacement is identity; a constant displacement is a translation.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "source",
+      "kind": "Image",
+      "required": true,
+      "doc": "The raster to warp (an Image, Mask, Sdf, or Field). Its descriptor and extent are preserved on the output."
+    },
+    {
+      "name": "displacement",
+      "kind": "Field2",
+      "required": true,
+      "doc": "The per-pixel (dx, dy) lookup offset in physical pixels; must share the source extent."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "warped",
+      "kind": "Image",
+      "doc": "The warped raster, same descriptor/extent as `source`."
+    }
+  ],
+  "params": [
+    {
+      "name": "filter",
+      "type": "string",
+      "required": false,
+      "default": "bilinear",
+      "choices": [
+        "nearest",
+        "bilinear"
+      ],
+      "doc": "The reconstruction filter (M1 resize vocabulary): nearest or bilinear."
+    },
+    {
+      "name": "boundary",
+      "type": "json",
+      "required": false,
+      "doc": "Out-of-bounds policy { mode: constant|transparent|clamp|mirror|wrap, value?: N }; absent is clamp."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "field.domain_warp is a displacement-field resampler verified by analytic properties (zero-displacement identity, constant-displacement integer/fractional translation equivalence, warp/inverse-warp round-trip within the bilinear tolerance, boundary-mode honoring); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

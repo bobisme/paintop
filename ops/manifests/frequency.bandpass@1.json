@@ -1,0 +1,97 @@
+{
+  "id": "frequency.bandpass@1",
+  "impl_version": 1,
+  "summary": "Filter a real Image/Field1 plane by a radial frequency band: forward DFT, multiply by an ideal or gaussian band response over [low, high] cycles-per-pixel (band-pass or band-stop), inverse DFT. Periodic (wrap) boundary.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The real Image or Field1 plane to filter."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output",
+      "kind": "Image",
+      "doc": "The band-filtered plane, same kind and extent as the input."
+    }
+  ],
+  "params": [
+    {
+      "name": "low",
+      "type": "float",
+      "required": true,
+      "doc": "The lower band cutoff in cycles-per-pixel (DC 0, per-axis Nyquist 0.5)."
+    },
+    {
+      "name": "high",
+      "type": "float",
+      "required": true,
+      "doc": "The upper band cutoff in cycles-per-pixel (>= low)."
+    },
+    {
+      "name": "window",
+      "type": "string",
+      "required": false,
+      "default": "ideal",
+      "choices": [
+        "ideal",
+        "gaussian"
+      ],
+      "doc": "The band response shape: an ideal brick-wall or a soft gaussian roll-off."
+    },
+    {
+      "name": "mode",
+      "type": "string",
+      "required": false,
+      "default": "band-pass",
+      "choices": [
+        "band-pass",
+        "band-stop"
+      ],
+      "doc": "Keep the band (band-pass) or reject it (band-stop, the complement)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "the band-pass filter is verified by the declared-band attenuation, DC preservation, and full-band identity fixtures, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

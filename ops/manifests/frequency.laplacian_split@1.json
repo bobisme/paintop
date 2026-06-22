@@ -1,0 +1,88 @@
+{
+  "id": "frequency.laplacian_split@1",
+  "impl_version": 1,
+  "summary": "Decompose an Image/Field1 into a Laplacian pyramid: each level the band-pass residual G_l - upsample(G_{l+1}), the coarsest level the low-pass. Exactly invertible by frequency.recombine.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The Image or Field1 to decompose (level 0 of the Gaussian pyramid)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "pyramid",
+      "kind": "Pyramid",
+      "doc": "The Laplacian (band-pass) pyramid; the coarsest level is the low-pass."
+    }
+  ],
+  "params": [
+    {
+      "name": "levels",
+      "type": "integer",
+      "required": true,
+      "doc": "The number of levels, level 0 the base (1..=64)."
+    },
+    {
+      "name": "sigma",
+      "type": "float",
+      "unit": "pixels",
+      "required": false,
+      "default": 1.0,
+      "doc": "The pre-decimation Gaussian standard deviation (anti-alias low-pass)."
+    },
+    {
+      "name": "phase",
+      "type": "string",
+      "required": false,
+      "default": "floor",
+      "choices": [
+        "floor",
+        "ceil"
+      ],
+      "doc": "The odd-size rounding rule mapping a parent extent to its child."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "the Laplacian split is verified by the split/recombine reconstruction round-trip and the band-extent convention, not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

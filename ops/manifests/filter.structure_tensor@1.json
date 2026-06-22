@@ -1,0 +1,79 @@
+{
+  "id": "filter.structure_tensor@1",
+  "impl_version": 1,
+  "summary": "Per-pixel structure tensor of an Image or Field1: central-difference gradients at a gradient scale, the per-channel outer-product summed, then Gaussian-smoothed at an integration scale; output is the symmetric tensor's (Jxx, Jxy, Jyy) as a Field3.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "geometric"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "kind": "Image",
+      "required": true,
+      "doc": "The Image or Field1 to analyze (channels summed for the colour tensor)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "tensor",
+      "kind": "Field3",
+      "doc": "The structure tensor's three independent entries (Jxx, Jxy, Jyy) per pixel."
+    }
+  ],
+  "params": [
+    {
+      "name": "gradient_sigma",
+      "type": "float",
+      "unit": "pixels",
+      "required": false,
+      "default": 0.0,
+      "doc": "Pre-smoothing applied before differentiation; 0 differentiates the raw input."
+    },
+    {
+      "name": "integration_sigma",
+      "type": "float",
+      "unit": "pixels",
+      "required": false,
+      "default": 2.0,
+      "doc": "Gaussian smoothing applied to the outer-product components (the window orientation is averaged over)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "filter.structure_tensor is a closed-form local-geometry summary verified by analytic tensor properties (oriented-grating tensor direction, constant/isotropic degeneracy, 90-degree rotation covariance of the (Jxx, Jxy, Jyy) entries); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

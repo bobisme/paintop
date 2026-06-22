@@ -93,7 +93,7 @@ pub(crate) enum BoundaryMode {
 
 impl BoundaryMode {
     /// Parse the boundary mode from its wire token.
-    fn from_token(token: &str) -> Option<Self> {
+    pub(crate) fn from_token(token: &str) -> Option<Self> {
         match token {
             "constant" => Some(Self::Constant),
             "transparent" => Some(Self::Transparent),
@@ -381,7 +381,7 @@ fn value_param(params: &serde_json::Value, channels: usize) -> Result<Vec<f64>> 
 /// Returns `Some(src_index)` to read `src[src_index]`, or `None` to use the
 /// out-of-bounds constant (only when the coordinate is genuinely outside and the
 /// mode is `constant`/`transparent`).
-fn source_index(coord: i64, n: i64, mode: BoundaryMode) -> Option<i64> {
+pub(crate) fn source_index(coord: i64, n: i64, mode: BoundaryMode) -> Option<i64> {
     if coord >= 0 && coord < n {
         return Some(coord);
     }

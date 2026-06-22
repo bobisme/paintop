@@ -1,0 +1,61 @@
+{
+  "id": "frequency.recombine@1",
+  "impl_version": 1,
+  "summary": "Reconstruct a full-resolution Image/Field1 from a Laplacian pyramid by telescoping the bands: recon_l = L_l + upsample(recon_{l+1}). The exact inverse of frequency.laplacian_split.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "full-domain"
+  },
+  "inputs": [
+    {
+      "name": "pyramid",
+      "kind": "Pyramid",
+      "required": true,
+      "doc": "The Laplacian pyramid to reconstruct (as produced by laplacian_split)."
+    }
+  ],
+  "outputs": [
+    {
+      "name": "image",
+      "kind": "Image",
+      "doc": "The reconstructed full-resolution Image (level-0 extent)."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "recombine is verified as the exact inverse of laplacian_split (reconstruction within f32 tolerance), not a perceptual metric"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

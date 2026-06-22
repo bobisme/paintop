@@ -462,6 +462,20 @@ pub enum ResourceKind {
     /// ranges, finite-value statistics, and a stable content hash. Carries no
     /// raster; it is the output of inspection ops such as `image.inspect@1`.
     Report,
+    /// A multi-resolution image/field pyramid (`OP_CATALOG` §13): a stack of
+    /// co-located rasters, level `0` the full-resolution base and each deeper
+    /// level dyadically downsampled. Mirrors
+    /// [`ResourceDescriptor::Pyramid`](crate::resource::ResourceDescriptor::Pyramid).
+    Pyramid,
+    /// A complex frequency spectrum (`OP_CATALOG` §9): the DFT of an image/field
+    /// plane. Mirrors
+    /// [`ResourceDescriptor::Spectrum`](crate::resource::ResourceDescriptor::Spectrum).
+    Spectrum,
+    /// A patch correspondence field / nearest-neighbour field (`OP_CATALOG` §10,
+    /// PatchMatch): a per-target-pixel mapping to the source coordinate of its
+    /// best-matching patch, with the patch-match cost. Mirrors
+    /// [`ResourceDescriptor::PatchField`](crate::resource::ResourceDescriptor::PatchField).
+    PatchField,
 }
 
 /// A typed, named **input port** of an operation (`IR_SPEC` §5 `in`).

@@ -1,0 +1,83 @@
+{
+  "id": "field.noise@1",
+  "impl_version": 1,
+  "summary": "Synthesize a scalar Field1 of hash-based value noise in [-1, 1]: each lattice point is a hash of (coordinate, seed) (tiling- and order-invariant, not a sequential RNG), bilinearly blended with a quintic fade.",
+  "determinism": "bounded",
+  "roi": {
+    "category": "pointwise"
+  },
+  "outputs": [
+    {
+      "name": "field",
+      "kind": "Field1",
+      "doc": "The value-noise scalar field in [-1, 1]."
+    }
+  ],
+  "params": [
+    {
+      "name": "width",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The output field width in pixels."
+    },
+    {
+      "name": "height",
+      "type": "integer",
+      "unit": "pixels",
+      "required": true,
+      "doc": "The output field height in pixels."
+    },
+    {
+      "name": "frequency",
+      "type": "float",
+      "required": false,
+      "default": 1.0,
+      "doc": "Lattice cells per 64 pixels (the base spatial frequency); strictly positive."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "required": false,
+      "default": 0,
+      "doc": "The 64-bit seed; the noise is a hash of (coordinate, seed), not a sequential RNG."
+    }
+  ],
+  "implementations": [
+    "cpu.reference@1"
+  ],
+  "test": {
+    "has_analytic_reference": true,
+    "has_property_tests": true,
+    "verification": {
+      "build-hygiene": {
+        "status": "covered"
+      },
+      "schema-contract": {
+        "status": "covered"
+      },
+      "analytic-fixtures": {
+        "status": "covered"
+      },
+      "property-tests": {
+        "status": "covered"
+      },
+      "metamorphic": {
+        "status": "covered"
+      },
+      "goldens": {
+        "status": "covered"
+      },
+      "perceptual": {
+        "status": "not-applicable",
+        "reason": "field.noise is hash-based value noise verified by analytic properties (bit-exact reruns, tiling/evaluation-order invariance via hash-of-coordinate, seed sensitivity, [-1, 1] range); there is no perceptual-quality metric to apply"
+      },
+      "fuzzing": {
+        "status": "covered"
+      },
+      "performance": {
+        "status": "covered"
+      }
+    }
+  }
+}

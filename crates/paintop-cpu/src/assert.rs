@@ -884,6 +884,8 @@ fn assertion_report(extent: Extent, outcome: AssertionOutcome) -> Report {
         assertion: Some(outcome),
         histogram: None,
         components: None,
+        frequency_energy: None,
+        solver: None,
     }
 }
 

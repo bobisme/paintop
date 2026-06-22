@@ -426,6 +426,8 @@ impl OpImplementation for Statistics {
             assertion: None,
             histogram: None,
             components: None,
+            frequency_energy: None,
+            solver: None,
         };
         Ok(single_report(report))
     }
@@ -733,6 +735,8 @@ impl OpImplementation for Histogram {
             assertion: None,
             histogram: Some(histogram),
             components: None,
+            frequency_energy: None,
+            solver: None,
         };
         Ok(single_report(report))
     }

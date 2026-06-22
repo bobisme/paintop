@@ -373,6 +373,8 @@ fn diff_report(samples: &[f32], extent: Extent, channels: u32, threshold: f64) -
         assertion: None,
         histogram: None,
         components: None,
+        frequency_energy: None,
+        solver: None,
     }
 }
 
